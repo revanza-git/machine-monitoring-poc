@@ -56,7 +56,7 @@ Each step is one commit, in this order.
 - [x] 9. Agent: backoff with jitter, batch cap, `429 Retry-After` handling
 - [x] 10. Server: `429` back-pressure under an in-flight limit
 - [x] 11. Server: query API for fleet and per-machine metrics
-- [ ] 12. Portal: fleet table and one chart
+- [x] 12. Portal: fleet table and one chart
 - [ ] 13. Versioned config in the ack reply, heartbeat fields
 - [ ] 14. Hourly continuous aggregate, compression and retention policies
 - [ ] 15. Stretch: Windows Service install flag, project root walk
@@ -123,3 +123,9 @@ Each step is one commit, in this order.
   range (raw up to 2 h, 5-minute buckets up to 2 days, hourly beyond) so a
   chart never reads more than a few thousand points. Buckets are computed
   with `time_bucket` on the fly until the continuous aggregate lands.
+- **Portal** (`src/Server/wwwroot/index.html`): one static page served by the
+  server, Chart.js from a CDN, no build step. The fleet table (status with
+  hysteresis, last seen, CPU, memory, drives, active user, agent version,
+  outbox depth) refreshes every 10 s; clicking a row charts that machine's
+  CPU and memory-used percentages on one 0 to 100 % axis for the last hour,
+  6 h, 24 h or 7 days. The x-axis is real time, so gaps keep their width.

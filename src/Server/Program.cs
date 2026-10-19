@@ -31,6 +31,10 @@ var app = builder.Build();
 await SchemaInitializer.ApplyAsync(
     app.Services.GetRequiredService<NpgsqlDataSource>(), app.Logger, app.Lifetime.ApplicationStopping);
 
+// The portal: one static page in wwwroot that calls the query API.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapIngest();
 app.MapQueryApi();
