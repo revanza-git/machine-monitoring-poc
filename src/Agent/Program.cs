@@ -5,6 +5,7 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection(AgentOptions.Section));
 builder.Services.AddSingleton<Outbox>();
 builder.Services.AddHostedService<SamplingLoop>();
+builder.Services.AddHostedService<Uploader>();
 
 var host = builder.Build();
 

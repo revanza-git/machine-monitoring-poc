@@ -24,6 +24,9 @@ what would change in production.
 - .NET SDK 10.0
 - Docker Desktop (for the database only)
 - Windows (the agent reads Windows performance counters)
+- The ASP.NET Core dev certificate, trusted: `dotnet dev-certs https --trust`.
+  If you would rather not trust it, the agent's Development profile sets
+  `TrustAnyServerCertificate`, which skips validation (development only).
 
 ## Run (target reviewer path)
 
@@ -47,7 +50,7 @@ Each step is one commit, in this order.
 - [x] 3. Server: `POST /v1/samples` validates and acks (in memory)
 - [x] 4. Agent: CPU (averaged over the interval), memory and drive samplers
 - [x] 5. Agent: SQLite outbox with increasing sequence numbers, persisted install id
-- [ ] 6. Agent: uploader with batching and delete-after-ack
+- [x] 6. Agent: uploader with batching and delete-after-ack
 - [ ] 7. Server: PostgreSQL + TimescaleDB schema applied on startup
 - [ ] 8. Server: ingest persists history and upserts `machine_latest` in one transaction, idempotent
 - [ ] 9. Agent: backoff with jitter, batch cap, `429 Retry-After` handling
@@ -79,3 +82,8 @@ Each step is one commit, in this order.
   `seq` is `INTEGER PRIMARY KEY AUTOINCREMENT`, so it is never reused even
   after acknowledged rows are deleted. The install id is stored in the same
   file, so sequence and install id reset together if the file is wiped.
+- **Uploader** (`src/Agent/Uploader.cs`): on its own timer it posts the oldest
+  rows (at most 500) with a heartbeat to `POST /v1/samples` and deletes rows
+  only after the reply's `ack_through` covers them. A full batch is followed
+  immediately by the next one so a backlog drains quickly. A heartbeat-only
+  post still goes out when the outbox is empty.
