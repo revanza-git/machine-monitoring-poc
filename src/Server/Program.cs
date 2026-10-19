@@ -1,6 +1,7 @@
 using Npgsql;
 using Server.Api;
 using Server.Auth;
+using Server.Config;
 using Server.Db;
 using Server.Ingest;
 using Shared;
@@ -22,6 +23,7 @@ builder.Services.AddSingleton(NpgsqlDataSource.Create(
 
 builder.Services.Configure<IngestOptions>(builder.Configuration.GetSection(IngestOptions.Section));
 builder.Services.Configure<StatusOptions>(builder.Configuration.GetSection(StatusOptions.Section));
+builder.Services.Configure<AgentConfigOptions>(builder.Configuration.GetSection(AgentConfigOptions.Section));
 builder.Services.AddSingleton<IngestThrottle>();   // one semaphore for the whole app
 builder.Services.AddSingleton<MachineRegistry>();
 builder.Services.AddSingleton<ISampleStore, PostgresSampleStore>();

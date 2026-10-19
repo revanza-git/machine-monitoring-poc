@@ -25,7 +25,7 @@ public static class QueryApi
             SELECT m.machine_id, m.name, m.hostname,
                    l.last_seen, l.sampled_at, l.cpu_pct, l.mem_used_mb, l.mem_total_mb,
                    l.drives::text, l.drives_at, l.active_user, l.agent_version,
-                   l.outbox_depth, l.restart_count, l.last_error, l.config_version
+                   l.outbox_depth, l.restart_count, l.last_error, l.config_version, l.stopped_at
             FROM machines m
             LEFT JOIN machine_latest l USING (machine_id)
             ORDER BY m.name
@@ -37,11 +37,12 @@ public static class QueryApi
         while (await r.ReadAsync(ct))
         {
             var lastSeen = r.GetNullableTime(3);
+            var stoppedAt = r.GetNullableTime(16);
             rows.Add(new MachineSummary(
                 MachineId: r.GetInt64(0),
                 Name: r.GetString(1),
                 Hostname: r.GetNullableString(2),
-                Status: MachineStatus.Compute(lastSeen, now, status.Value),
+                Status: MachineStatus.Compute(lastSeen, stoppedAt, now, status.Value),
                 LastSeen: lastSeen,
                 SampledAt: r.GetNullableTime(4),
                 CpuPct: r.GetNullable<double>(5),

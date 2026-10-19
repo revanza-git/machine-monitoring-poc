@@ -30,6 +30,7 @@ public sealed class AgentOptions
     /// <summary>How often the CPU counter is read. The reported value is the average of these reads.</summary>
     public int CpuTickS { get; set; } = 5;
 
+    /// <summary>Sampling intervals used until the server has sent config (then ConfigCache wins).</summary>
     public int CpuMemIntervalS { get; set; } = 60;
 
     public int DriveIntervalS { get; set; } = 300;

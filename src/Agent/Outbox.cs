@@ -124,19 +124,46 @@ public sealed class Outbox : IDisposable
         }
     }
 
+    /// <summary>Small key/value store beside the queue: install id, restart count, cached config.</summary>
+    public string? GetMeta(string key)
+    {
+        lock (_gate)
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.CommandText = "SELECT value FROM meta WHERE key = $key";
+            cmd.Parameters.AddWithValue("$key", key);
+            return cmd.ExecuteScalar() as string;
+        }
+    }
+
+    public void SetMeta(string key, string value)
+    {
+        lock (_gate)
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.CommandText = "INSERT INTO meta (key, value) VALUES ($key, $value) ON CONFLICT (key) DO UPDATE SET value = excluded.value";
+            cmd.Parameters.AddWithValue("$key", key);
+            cmd.Parameters.AddWithValue("$value", value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>Called once per process start. A climbing count in the heartbeat is the restart-loop signal.</summary>
+    public int IncrementRestartCount()
+    {
+        var count = int.Parse(GetMeta("restart_count") ?? "0", CultureInfo.InvariantCulture) + 1;
+        SetMeta("restart_count", count.ToString(CultureInfo.InvariantCulture));
+        return count;
+    }
+
     private Guid LoadOrCreateInstallId()
     {
-        using var read = _db.CreateCommand();
-        read.CommandText = "SELECT value FROM meta WHERE key = 'install_id'";
-        if (read.ExecuteScalar() is string existing)
+        if (GetMeta("install_id") is { } existing)
             return Guid.Parse(existing);
 
         var id = Guid.NewGuid();
-        using var write = _db.CreateCommand();
-        write.CommandText = "INSERT INTO meta (key, value) VALUES ('install_id', $id), ('created_at', $now)";
-        write.Parameters.AddWithValue("$id", id.ToString());
-        write.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
-        write.ExecuteNonQuery();
+        SetMeta("install_id", id.ToString());
+        SetMeta("created_at", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
         return id;
     }
 

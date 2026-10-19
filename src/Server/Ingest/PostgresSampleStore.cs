@@ -134,6 +134,7 @@ public sealed class PostgresSampleStore(NpgsqlDataSource db, ILogger<PostgresSam
     /// Heartbeat fields are always refreshed. Sample fields are refreshed only
     /// when this batch carried that kind (COALESCE keeps the previous value
     /// otherwise), so a heartbeat-only post never blanks the overview.
+    /// stopped_at is set by a stopping heartbeat and cleared by any other.
     /// </summary>
     private static async Task UpsertLatestAsync(
         NpgsqlConnection conn, long machineId, SampleBatch batch, DateTimeOffset receivedAt,
@@ -144,10 +145,11 @@ public sealed class PostgresSampleStore(NpgsqlDataSource db, ILogger<PostgresSam
             INSERT INTO machine_latest (
                 machine_id, last_seen, active_user, agent_version, install_id,
                 outbox_depth, restart_count, last_error, config_version,
-                sampled_at, cpu_pct, mem_used_mb, mem_total_mb, drives, drives_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                sampled_at, cpu_pct, mem_used_mb, mem_total_mb, drives, drives_at, stopped_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             ON CONFLICT (machine_id) DO UPDATE SET
                 last_seen      = EXCLUDED.last_seen,
+                stopped_at     = EXCLUDED.stopped_at,
                 active_user    = EXCLUDED.active_user,
                 agent_version  = EXCLUDED.agent_version,
                 install_id     = EXCLUDED.install_id,
@@ -178,6 +180,7 @@ public sealed class PostgresSampleStore(NpgsqlDataSource db, ILogger<PostgresSam
         cmd.Parameters.Add(new() { Value = cpu is null ? DBNull.Value : cpu.Value.Data.MemTotalMb, NpgsqlDbType = NpgsqlDbType.Bigint });
         cmd.Parameters.Add(new() { Value = drives is null ? DBNull.Value : JsonSerializer.Serialize(drives.Value.Data.Drives, JsonDefaults.Options), NpgsqlDbType = NpgsqlDbType.Jsonb });
         cmd.Parameters.Add(new() { Value = drives is null ? DBNull.Value : drives.Value.Sample.SampledAt.UtcDateTime, NpgsqlDbType = NpgsqlDbType.TimestampTz });
+        cmd.Parameters.Add(new() { Value = hb.Stopping ? receivedAt.UtcDateTime : DBNull.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz });
 
         await cmd.ExecuteNonQueryAsync(ct);
     }

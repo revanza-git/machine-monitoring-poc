@@ -8,15 +8,19 @@ namespace Agent;
 /// <summary>
 /// Drains the outbox to the server. Each cycle peeks the oldest rows (at most
 /// <see cref="AgentOptions.MaxBatchRows"/>), posts them with a heartbeat, and
-/// deletes rows only after the server's ack_through covers them.
+/// deletes rows only after the server's ack_through covers them. An ack that
+/// carries config is applied through the <see cref="ConfigCache"/>.
 ///
 /// Pacing: after a success wait the normal interval; after a full batch go
 /// again at once so a backlog drains in capped batches; after any failure
 /// (timeout, 5xx, 429, bad certificate, DNS) wait an exponentially growing,
 /// jittered delay. A 429 honours the server's Retry-After instead. Sampling
 /// never stops while this waits: the outbox simply grows, up to its age cap.
+///
+/// On clean shutdown a final heartbeat with stopping=true is sent, best
+/// effort, so the portal can show "off" instead of "unresponsive".
 /// </summary>
-public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, ILogger<Uploader> logger)
+public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, ConfigCache config, ILogger<Uploader> logger)
     : BackgroundService
 {
     private static readonly string AgentVersion =
@@ -26,6 +30,9 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, ILog
     private readonly Backoff _backoff = new(
         TimeSpan.FromSeconds(options.Value.BackoffInitialS),
         TimeSpan.FromSeconds(options.Value.BackoffMaxS));
+
+    private readonly int _restartCount = outbox.IncrementRestartCount();
+    private string? _lastError;
 
     private static HttpClient CreateClient(AgentOptions o)
     {
@@ -44,15 +51,15 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, ILog
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         var o = options.Value;
-        logger.LogInformation("Uploading to {Server} every {Interval}s, up to {Max} rows per batch, outbox cap {Days} days",
-            o.ServerUrl, o.UploadIntervalS, o.MaxBatchRows, o.OutboxMaxAgeDays);
+        logger.LogInformation("Uploading to {Server} every {Interval}s, up to {Max} rows per batch, outbox cap {Days} days, restart #{Restarts}",
+            o.ServerUrl, o.UploadIntervalS, o.MaxBatchRows, o.OutboxMaxAgeDays, _restartCount);
         if (o.TrustAnyServerCertificate)
             logger.LogWarning("TrustAnyServerCertificate is on: server certificate is NOT validated (development only)");
 
         while (!ct.IsCancellationRequested)
         {
             PruneOutbox();
-            var outcome = await TrySendBatchAsync(ct);
+            var outcome = await TrySendBatchAsync(stopping: false, ct);
 
             var wait = outcome switch
             {
@@ -71,6 +78,15 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, ILog
         }
     }
 
+    /// <summary>The goodbye: a heartbeat-only post flagged stopping. Best effort, five seconds at most.</summary>
+    public override async Task StopAsync(CancellationToken ct)
+    {
+        await base.StopAsync(ct);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        logger.LogInformation("Sending final heartbeat (stopping)");
+        await TrySendBatchAsync(stopping: true, cts.Token);
+    }
+
     private abstract record Outcome
     {
         public sealed record Sent : Outcome;
@@ -79,10 +95,10 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, ILog
         public sealed record Failed : Outcome;
     }
 
-    private async Task<Outcome> TrySendBatchAsync(CancellationToken ct)
+    private async Task<Outcome> TrySendBatchAsync(bool stopping, CancellationToken ct)
     {
         var o = options.Value;
-        var rows = outbox.PeekBatch(o.MaxBatchRows);
+        List<Sample> rows = stopping ? [] : outbox.PeekBatch(o.MaxBatchRows);
         var batch = new SampleBatch(
             MachineId: o.MachineId,
             InstallId: outbox.InstallId,
@@ -91,9 +107,10 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, ILog
             Heartbeat: new Heartbeat(
                 ActiveUser: $"{Environment.UserDomainName}\\{Environment.UserName}",
                 OutboxDepth: outbox.Depth(),
-                RestartCount: 0,
-                LastError: null,
-                ConfigVersion: 0));
+                RestartCount: _restartCount,
+                LastError: _lastError,
+                ConfigVersion: config.Current.Version,
+                Stopping: stopping));
 
         try
         {
@@ -103,31 +120,41 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, ILog
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
                 var retryAfter = response.Headers.RetryAfter?.Delta ?? _backoff.Next();
-                logger.LogWarning("Server is saturated (429), Retry-After {Seconds:0.#}s", retryAfter.TotalSeconds);
-                return new Outcome.Throttled(retryAfter);
+                return Fail(new Outcome.Throttled(retryAfter), $"429, Retry-After {retryAfter.TotalSeconds:0.#}s");
             }
 
             if (!response.IsSuccessStatusCode)
-            {
-                logger.LogWarning("Upload of {Count} rows failed: HTTP {Status}", rows.Count, (int)response.StatusCode);
-                return new Outcome.Failed();
-            }
+                return Fail(new Outcome.Failed(), $"HTTP {(int)response.StatusCode}");
 
             var ack = await response.Content.ReadFromJsonAsync<AckResponse>(JsonDefaults.Options, ct)
                       ?? throw new InvalidOperationException("empty ack");
 
             var deleted = outbox.DeleteThrough(ack.AckThrough);
             _backoff.Reset();
+            _lastError = null;
             logger.LogInformation("Sent {Count} rows, ack_through {Ack}, deleted {Deleted}, {Depth} left",
                 rows.Count, ack.AckThrough, deleted, outbox.Depth());
+
+            if (ack.Config is { } newConfig)
+                config.Apply(newConfig);
 
             return rows.Count == o.MaxBatchRows ? new Outcome.SentFull() : new Outcome.Sent();
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException
                                    && !ct.IsCancellationRequested)
         {
-            logger.LogWarning("Upload of {Count} rows failed: {Reason}", rows.Count, ex.GetBaseException().Message);
-            return new Outcome.Failed();
+            return Fail(new Outcome.Failed(), ex.GetBaseException().Message);
+        }
+        catch (OperationCanceledException) when (stopping)
+        {
+            return Fail(new Outcome.Failed(), "goodbye timed out");
+        }
+
+        Outcome Fail(Outcome outcome, string reason)
+        {
+            _lastError = $"{DateTimeOffset.UtcNow:HH:mm:ss}Z upload failed: {reason}";
+            logger.LogWarning("Upload of {Count} rows failed: {Reason}", rows.Count, reason);
+            return outcome;
         }
     }
 

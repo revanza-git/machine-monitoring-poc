@@ -7,40 +7,48 @@ namespace Agent;
 /// <summary>
 /// The agent's one timer. Every tick reads the CPU counter; when the cpu_mem
 /// or drive interval is due, a sample is closed out and written to the outbox.
-/// One wake per tick, as the design's "timers coalesced" line asks.
+/// One wake per tick, as the design's "timers coalesced" line asks. Intervals
+/// come from the config cache, so a server-side change takes effect at the
+/// next tick without a restart.
 /// </summary>
-public sealed class SamplingLoop(IOptions<AgentOptions> options, Outbox outbox, ILogger<SamplingLoop> logger)
+public sealed class SamplingLoop(IOptions<AgentOptions> options, ConfigCache config, Outbox outbox, ILogger<SamplingLoop> logger)
     : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        var o = options.Value;
         using var cpu = new CpuSampler();
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(o.CpuTickS));
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(options.Value.CpuTickS));
 
         var now = DateTimeOffset.UtcNow;
-        var nextCpuMem = now.AddSeconds(o.CpuMemIntervalS);   // needs a full window of ticks first
-        var nextDrive = now;                                   // drives are a snapshot, so take one at once
+        var lastCpuMem = now;                        // needs a full window of ticks first
+        var lastDrive = now.AddSeconds(-config.Current.DriveIntervalS);   // drives are a snapshot: take one at once
+        var version = config.Current.Version;
 
-        logger.LogInformation("Sampling: cpu tick {Tick}s, cpu_mem every {CpuMem}s, drives every {Drive}s",
-            o.CpuTickS, o.CpuMemIntervalS, o.DriveIntervalS);
+        logger.LogInformation("Sampling: cpu tick {Tick}s", options.Value.CpuTickS);
 
         while (await timer.WaitForNextTickAsync(ct))
         {
             now = DateTimeOffset.UtcNow;
             cpu.Tick();
 
-            if (now >= nextDrive)
+            var cfg = config.Current;
+            if (cfg.Version != version)
             {
-                Queue(SampleKinds.Drive, now, DriveSampler.Read());
-                nextDrive = now.AddSeconds(o.DriveIntervalS);
+                logger.LogInformation("Sampling now follows config v{Version}", cfg.Version);
+                version = cfg.Version;
             }
 
-            if (now >= nextCpuMem && cpu.CloseInterval() is { } cpuPct)
+            if (now >= lastDrive.AddSeconds(cfg.DriveIntervalS))
+            {
+                Queue(SampleKinds.Drive, now, DriveSampler.Read());
+                lastDrive = now;
+            }
+
+            if (now >= lastCpuMem.AddSeconds(cfg.CpuMemIntervalS) && cpu.CloseInterval() is { } cpuPct)
             {
                 var mem = MemorySampler.Read();
                 Queue(SampleKinds.CpuMem, now, new CpuMemData(cpuPct, mem.UsedMb, mem.TotalMb));
-                nextCpuMem = now.AddSeconds(o.CpuMemIntervalS);
+                lastCpuMem = now;
             }
         }
     }

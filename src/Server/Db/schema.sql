@@ -33,6 +33,10 @@ CREATE TABLE IF NOT EXISTS machine_latest (
     last_error     text,
     config_version int
 );
+-- Added with the heartbeat fields: set by the final heartbeat of a clean
+-- shutdown, cleared by the next normal one. Idempotent ALTER keeps the
+-- "apply on every start" story working for databases created earlier.
+ALTER TABLE machine_latest ADD COLUMN IF NOT EXISTS stopped_at timestamptz;
 
 -- History. Hypertables partitioned on time (sampled_at from the agent).
 -- received_at is the server clock, kept beside it for clock-drift checks.

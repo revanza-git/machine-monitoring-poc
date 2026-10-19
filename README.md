@@ -57,7 +57,7 @@ Each step is one commit, in this order.
 - [x] 10. Server: `429` back-pressure under an in-flight limit
 - [x] 11. Server: query API for fleet and per-machine metrics
 - [x] 12. Portal: fleet table and one chart
-- [ ] 13. Versioned config in the ack reply, heartbeat fields
+- [x] 13. Versioned config in the ack reply, heartbeat fields
 - [ ] 14. Hourly continuous aggregate, compression and retention policies
 - [ ] 15. Stretch: Windows Service install flag, project root walk
 - [ ] 16. Outage demo script
@@ -129,3 +129,14 @@ Each step is one commit, in this order.
   outbox depth) refreshes every 10 s; clicking a row charts that machine's
   CPU and memory-used percentages on one 0 to 100 % axis for the last hour,
   6 h, 24 h or 7 days. The x-axis is real time, so gaps keep their width.
+- **Config and heartbeat** (`src/Server/Config`, `src/Agent/ConfigCache.cs`):
+  the server holds one fleet-wide `AgentConfig` in `appsettings.json`
+  (version, intervals, project root, groups), read through an options
+  monitor so editing the file while the server runs pushes the change on the
+  next heartbeat. The agent reports its config version in every heartbeat;
+  the server sends config only when that version is behind. The agent
+  persists the last config in the outbox's meta table so it starts with the
+  right intervals even if the server is down. The heartbeat also carries the
+  restart count (persisted), the last upload error, and a `stopping` flag on
+  the final heartbeat of a clean shutdown, which the portal shows as "off"
+  rather than "unresponsive".
