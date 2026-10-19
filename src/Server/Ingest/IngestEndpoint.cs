@@ -11,7 +11,10 @@ public static class IngestEndpoint
 {
     public static IEndpointRouteBuilder MapIngest(this IEndpointRouteBuilder app)
     {
-        app.MapPost(Routes.Samples, HandleAsync).AddEndpointFilter<ApiKeyFilter>();
+        // Throttle first: shedding load must be the cheapest thing the server does.
+        app.MapPost(Routes.Samples, HandleAsync)
+            .AddEndpointFilter(app.ServiceProvider.GetRequiredService<IngestThrottle>())
+            .AddEndpointFilter<ApiKeyFilter>();
         return app;
     }
 

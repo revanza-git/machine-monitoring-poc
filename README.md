@@ -54,7 +54,7 @@ Each step is one commit, in this order.
 - [x] 7. Server: PostgreSQL + TimescaleDB schema applied on startup
 - [x] 8. Server: ingest persists history and upserts `machine_latest` in one transaction, idempotent
 - [x] 9. Agent: backoff with jitter, batch cap, `429 Retry-After` handling
-- [ ] 10. Server: `429` back-pressure under an in-flight limit
+- [x] 10. Server: `429` back-pressure under an in-flight limit
 - [ ] 11. Server: query API for fleet and per-machine metrics
 - [ ] 12. Portal: fleet table and one chart
 - [ ] 13. Versioned config in the ack reply, heartbeat fields
@@ -109,3 +109,9 @@ Each step is one commit, in this order.
   recovery the backlog drains in 500-row batches. The outbox is capped at 7
   days; past that the oldest rows are dropped with an error log, which is
   the one place the "no data loss" promise ends by design.
+- **Resilience, server side** (`src/Server/Ingest/IngestThrottle.cs`): a
+  semaphore bounds how many batches are inside the database transaction at
+  once (`Ingest:MaxInFlight`, default 16). Beyond that the server answers
+  `429` with `Retry-After` immediately instead of queueing. Shedding load is
+  free because the rows are still safe in the agent's outbox. Try it with
+  `$env:Ingest__MaxInFlight=1` and a few parallel posts.

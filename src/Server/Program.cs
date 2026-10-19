@@ -19,6 +19,8 @@ builder.Services.AddSingleton(NpgsqlDataSource.Create(
     builder.Configuration.GetConnectionString("Monitoring")
     ?? throw new InvalidOperationException("ConnectionStrings:Monitoring is missing")));
 
+builder.Services.Configure<IngestOptions>(builder.Configuration.GetSection(IngestOptions.Section));
+builder.Services.AddSingleton<IngestThrottle>();   // one semaphore for the whole app
 builder.Services.AddSingleton<MachineRegistry>();
 builder.Services.AddSingleton<ISampleStore, PostgresSampleStore>();
 
