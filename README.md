@@ -55,7 +55,7 @@ Each step is one commit, in this order.
 - [x] 8. Server: ingest persists history and upserts `machine_latest` in one transaction, idempotent
 - [x] 9. Agent: backoff with jitter, batch cap, `429 Retry-After` handling
 - [x] 10. Server: `429` back-pressure under an in-flight limit
-- [ ] 11. Server: query API for fleet and per-machine metrics
+- [x] 11. Server: query API for fleet and per-machine metrics
 - [ ] 12. Portal: fleet table and one chart
 - [ ] 13. Versioned config in the ack reply, heartbeat fields
 - [ ] 14. Hourly continuous aggregate, compression and retention policies
@@ -115,3 +115,11 @@ Each step is one commit, in this order.
   `429` with `Retry-After` immediately instead of queueing. Shedding load is
   free because the rows are still safe in the agent's outbox. Try it with
   `$env:Ingest__MaxInFlight=1` and a few parallel posts.
+- **Query API** (`src/Server/Api`): `GET /api/machines` is one query over
+  `machines` joined to `machine_latest` and never scans history. Status is
+  computed at read time with hysteresis: unresponsive after three heartbeat
+  intervals of silence, online again on the next heartbeat.
+  `GET /api/machines/{id}/metrics?from&to` picks the resolution from the
+  range (raw up to 2 h, 5-minute buckets up to 2 days, hourly beyond) so a
+  chart never reads more than a few thousand points. Buckets are computed
+  with `time_bucket` on the fly until the continuous aggregate lands.

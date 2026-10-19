@@ -1,4 +1,5 @@
 using Npgsql;
+using Server.Api;
 using Server.Auth;
 using Server.Db;
 using Server.Ingest;
@@ -20,6 +21,7 @@ builder.Services.AddSingleton(NpgsqlDataSource.Create(
     ?? throw new InvalidOperationException("ConnectionStrings:Monitoring is missing")));
 
 builder.Services.Configure<IngestOptions>(builder.Configuration.GetSection(IngestOptions.Section));
+builder.Services.Configure<StatusOptions>(builder.Configuration.GetSection(StatusOptions.Section));
 builder.Services.AddSingleton<IngestThrottle>();   // one semaphore for the whole app
 builder.Services.AddSingleton<MachineRegistry>();
 builder.Services.AddSingleton<ISampleStore, PostgresSampleStore>();
@@ -31,5 +33,6 @@ await SchemaInitializer.ApplyAsync(
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapIngest();
+app.MapQueryApi();
 
 app.Run();
