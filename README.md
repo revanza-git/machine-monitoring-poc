@@ -46,7 +46,7 @@ Each step is one commit, in this order.
 - [x] 2. Shared contracts: sample batch, heartbeat, ack, config
 - [x] 3. Server: `POST /v1/samples` validates and acks (in memory)
 - [x] 4. Agent: CPU (averaged over the interval), memory and drive samplers
-- [ ] 5. Agent: SQLite outbox with increasing sequence numbers, persisted install id
+- [x] 5. Agent: SQLite outbox with increasing sequence numbers, persisted install id
 - [ ] 6. Agent: uploader with batching and delete-after-ack
 - [ ] 7. Server: PostgreSQL + TimescaleDB schema applied on startup
 - [ ] 8. Server: ingest persists history and upserts `machine_latest` in one transaction, idempotent
@@ -74,3 +74,8 @@ Each step is one commit, in this order.
   `Processor Information\% Processor Time\_Total` counter, read every tick and
   averaged over the interval; memory from `GlobalMemoryStatusEx`; fixed ready
   drives from `DriveInfo`. One timer drives all three.
+- **Outbox** (`src/Agent/Outbox.cs`): every sample is written to
+  `data/outbox.db` (SQLite, WAL, `synchronous=FULL`) before anything is sent.
+  `seq` is `INTEGER PRIMARY KEY AUTOINCREMENT`, so it is never reused even
+  after acknowledged rows are deleted. The install id is stored in the same
+  file, so sequence and install id reset together if the file is wiped.
