@@ -71,3 +71,49 @@ CREATE TABLE IF NOT EXISTS drive_samples (
 );
 SELECT create_hypertable('drive_samples', 'time', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS drive_samples_machine_time ON drive_samples (machine_id, time DESC);
+
+-- ---------------------------------------------------------------------------
+-- Rollups, compression and retention: policies, not jobs someone maintains.
+-- ---------------------------------------------------------------------------
+
+-- Hourly avg/min/max per machine, kept up to date by TimescaleDB as data
+-- arrives. materialized_only = false means a query also sees the not-yet-
+-- materialised tail, so the current hour is never missing from a chart.
+-- The design also has a 5-minute rollup; the PoC shows the pattern once.
+CREATE MATERIALIZED VIEW IF NOT EXISTS cpu_mem_hourly
+WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
+SELECT time_bucket(INTERVAL '1 hour', time) AS bucket,
+       machine_id,
+       avg(cpu_pct)              AS cpu_avg,
+       min(cpu_pct)              AS cpu_min,
+       max(cpu_pct)              AS cpu_max,
+       avg(mem_used_mb)::bigint  AS mem_used_avg,
+       max(mem_total_mb)         AS mem_total_max
+FROM cpu_mem_samples
+GROUP BY bucket, machine_id
+WITH NO DATA;
+
+SELECT add_continuous_aggregate_policy('cpu_mem_hourly',
+    start_offset      => INTERVAL '3 hours',
+    end_offset        => INTERVAL '1 minute',
+    schedule_interval => INTERVAL '10 minutes',
+    if_not_exists     => TRUE);
+
+-- Raw chunks older than a week are compressed (roughly 10 to 20x), segmented
+-- by machine so a per-machine time-range query decompresses only its own data.
+ALTER TABLE cpu_mem_samples SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'machine_id',
+    timescaledb.compress_orderby   = 'time DESC');
+SELECT add_compression_policy('cpu_mem_samples', INTERVAL '7 days', if_not_exists => TRUE);
+
+ALTER TABLE drive_samples SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'machine_id',
+    timescaledb.compress_orderby   = 'time DESC');
+SELECT add_compression_policy('drive_samples', INTERVAL '7 days', if_not_exists => TRUE);
+
+-- Thirteen months, not twelve, so last March is still there in March.
+SELECT add_retention_policy('cpu_mem_samples', INTERVAL '13 months', if_not_exists => TRUE);
+SELECT add_retention_policy('drive_samples',   INTERVAL '13 months', if_not_exists => TRUE);
+SELECT add_retention_policy('cpu_mem_hourly',  INTERVAL '13 months', if_not_exists => TRUE);

@@ -58,7 +58,7 @@ Each step is one commit, in this order.
 - [x] 11. Server: query API for fleet and per-machine metrics
 - [x] 12. Portal: fleet table and one chart
 - [x] 13. Versioned config in the ack reply, heartbeat fields
-- [ ] 14. Hourly continuous aggregate, compression and retention policies
+- [x] 14. Hourly continuous aggregate, compression and retention policies
 - [ ] 15. Stretch: Windows Service install flag, project root walk
 - [ ] 16. Outage demo script
 - [ ] 17. Final README
@@ -140,3 +140,12 @@ Each step is one commit, in this order.
   restart count (persisted), the last upload error, and a `stopping` flag on
   the final heartbeat of a clean shutdown, which the portal shows as "off"
   rather than "unresponsive".
+- **Rollups, compression, retention** (`src/Server/Db/schema.sql`, bottom):
+  `cpu_mem_hourly` is a continuous aggregate (avg/min/max per machine per
+  hour) refreshed by policy every 10 minutes and queried with real-time
+  aggregation, so the current hour is never missing. Raw chunks older than
+  7 days are compressed, segmented by machine. Raw tables and the aggregate
+  are dropped after 13 months. All of it is declared in the schema and
+  applied idempotently on start; the hourly path of the metrics endpoint
+  reads the aggregate. The design's 5-minute rollup is left as on-the-fly
+  bucketing to show the pattern once.

@@ -63,8 +63,9 @@ public static class QueryApi
     /// <summary>
     /// Resolution follows the design's rule: raw for short ranges, aggregated
     /// for long ones, so a chart never reads more than a few thousand rows.
-    /// Buckets are computed on the fly here; the hourly path moves to a
-    /// continuous aggregate in a later step.
+    /// 5-minute buckets are computed on the fly (cheap over two days); the
+    /// hourly path reads the cpu_mem_hourly continuous aggregate, which
+    /// TimescaleDB keeps current as data arrives.
     /// </summary>
     private static async Task<IResult> MetricsAsync(
         long id, DateTimeOffset? from, DateTimeOffset? to, NpgsqlDataSource db, CancellationToken ct)
@@ -81,14 +82,15 @@ public static class QueryApi
             _ => ("1h", TimeSpan.FromHours(1)),
         };
 
-        await using var cmd = bucket is null
-            ? db.CreateCommand("""
+        await using var cmd = resolution switch
+        {
+            "raw" => db.CreateCommand("""
                 SELECT time, cpu_pct, cpu_pct, cpu_pct, mem_used_mb, mem_total_mb
                 FROM cpu_mem_samples
                 WHERE machine_id = $1 AND time >= $2 AND time < $3
                 ORDER BY time
-                """)
-            : db.CreateCommand("""
+                """),
+            "5m" => db.CreateCommand("""
                 SELECT time_bucket($4, time) AS bucket,
                        avg(cpu_pct), min(cpu_pct), max(cpu_pct),
                        avg(mem_used_mb)::bigint, max(mem_total_mb)
@@ -96,12 +98,19 @@ public static class QueryApi
                 WHERE machine_id = $1 AND time >= $2 AND time < $3
                 GROUP BY bucket
                 ORDER BY bucket
-                """);
+                """),
+            _ => db.CreateCommand("""
+                SELECT bucket, cpu_avg, cpu_min, cpu_max, mem_used_avg, mem_total_max
+                FROM cpu_mem_hourly
+                WHERE machine_id = $1 AND bucket >= $2 AND bucket < $3
+                ORDER BY bucket
+                """),
+        };
 
         cmd.Parameters.Add(new() { Value = id });
         cmd.Parameters.Add(new() { Value = fromUtc.UtcDateTime });
         cmd.Parameters.Add(new() { Value = toUtc.UtcDateTime });
-        if (bucket is { } b) cmd.Parameters.Add(new() { Value = b });
+        if (resolution == "5m") cmd.Parameters.Add(new() { Value = bucket!.Value });
 
         var points = new List<MetricPoint>();
         await using var r = await cmd.ExecuteReaderAsync(ct);
