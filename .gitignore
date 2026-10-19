@@ -480,3 +480,16 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+##
+## Project-specific
+##
+
+# Agent local state: SQLite outbox, install id, cached config
+src/Agent/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Scratch output from demo scripts
+scripts/*.log
