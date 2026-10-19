@@ -51,7 +51,7 @@ Each step is one commit, in this order.
 - [x] 4. Agent: CPU (averaged over the interval), memory and drive samplers
 - [x] 5. Agent: SQLite outbox with increasing sequence numbers, persisted install id
 - [x] 6. Agent: uploader with batching and delete-after-ack
-- [ ] 7. Server: PostgreSQL + TimescaleDB schema applied on startup
+- [x] 7. Server: PostgreSQL + TimescaleDB schema applied on startup
 - [ ] 8. Server: ingest persists history and upserts `machine_latest` in one transaction, idempotent
 - [ ] 9. Agent: backoff with jitter, batch cap, `429 Retry-After` handling
 - [ ] 10. Server: `429` back-pressure under an in-flight limit
@@ -87,3 +87,10 @@ Each step is one commit, in this order.
   only after the reply's `ack_through` covers them. A full batch is followed
   immediately by the next one so a backlog drains quickly. A heartbeat-only
   post still goes out when the outbox is empty.
+- **Schema** (`src/Server/Db/schema.sql`): `machines`, `machine_latest`, and
+  the hypertables `cpu_mem_samples` and `drive_samples`, exactly as in the
+  design. Embedded in the server and applied on every start (idempotent, with
+  a retry loop so `docker compose up -d` followed by `dotnet run` works). The
+  idempotency key `(machine_id, install_id, seq)` is a unique index; TimescaleDB
+  requires the partition column in it, so `time` is included, which changes
+  nothing because a resend carries the same `sampled_at`.
