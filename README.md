@@ -41,6 +41,25 @@ The agent's Development profile uses short intervals (2 s CPU tick, 10 s
 cpu_mem, 30 s drives) so a demo shows data within seconds. `appsettings.json`
 holds the design values (60 s and 5 min).
 
+## Outage demo
+
+```powershell
+docker compose up -d
+dotnet build MachineMonitoring.slnx
+.\scripts\outage-demo.ps1            # -OutageSeconds 60 by default
+```
+
+The script starts the server and the agent in their own windows, lets the
+first batches be acknowledged, kills the server for a minute, then restarts
+it. In the agent window you see uploads fail, retries backing off with
+jitter while the outbox depth climbs, and on recovery one batch draining the
+backlog. The script then queries the API: the chart points sampled during the
+outage are present with their original timestamps, so the portal shows a
+delay, never a hole. Finish by pressing Ctrl+C in the agent window: the final
+heartbeat flags a clean stop and the fleet table shows the machine as off,
+whereas killing the process leaves it unresponsive after three missed
+heartbeats.
+
 ## Progress
 
 Each step is one commit, in this order.
@@ -60,7 +79,7 @@ Each step is one commit, in this order.
 - [x] 13. Versioned config in the ack reply, heartbeat fields
 - [x] 14. Hourly continuous aggregate, compression and retention policies
 - [x] 15. Stretch: Windows Service install flag, project root walk
-- [ ] 16. Outage demo script
+- [x] 16. Outage demo script
 - [ ] 17. Final README
 
 ## Implemented so far
