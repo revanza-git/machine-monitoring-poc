@@ -53,7 +53,7 @@ Each step is one commit, in this order.
 - [x] 6. Agent: uploader with batching and delete-after-ack
 - [x] 7. Server: PostgreSQL + TimescaleDB schema applied on startup
 - [x] 8. Server: ingest persists history and upserts `machine_latest` in one transaction, idempotent
-- [ ] 9. Agent: backoff with jitter, batch cap, `429 Retry-After` handling
+- [x] 9. Agent: backoff with jitter, batch cap, `429 Retry-After` handling
 - [ ] 10. Server: `429` back-pressure under an in-flight limit
 - [ ] 11. Server: query API for fleet and per-machine metrics
 - [ ] 12. Portal: fleet table and one chart
@@ -101,3 +101,11 @@ Each step is one commit, in this order.
   A heartbeat-only post refreshes `last_seen` without blanking the sample
   columns. A payload that does not parse is logged and acknowledged rather
   than rejected, so a poison row cannot wedge an agent.
+- **Resilience, agent side** (`src/Agent/Backoff.cs`, `Uploader.cs`): every
+  failure (connection refused, timeout, 5xx, bad certificate) takes the same
+  path: exponential backoff with jitter (5 s doubling to 5 min in the design
+  profile, 2 s to 30 s in Development) while sampling continues and the
+  outbox grows. A 429 honours the server's `Retry-After` plus jitter. On
+  recovery the backlog drains in 500-row batches. The outbox is capped at 7
+  days; past that the oldest rows are dropped with an error log, which is
+  the one place the "no data loss" promise ends by design.

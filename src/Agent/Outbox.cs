@@ -98,6 +98,21 @@ public sealed class Outbox : IDisposable
         }
     }
 
+    /// <summary>
+    /// Enforces the outbox age cap. sampled_at is stored in round-trip ("O")
+    /// UTC format, which sorts as text in time order, so a string comparison is enough.
+    /// </summary>
+    public int DeleteOlderThan(TimeSpan maxAge)
+    {
+        lock (_gate)
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.CommandText = "DELETE FROM outbox WHERE sampled_at < $cutoff";
+            cmd.Parameters.AddWithValue("$cutoff", (DateTimeOffset.UtcNow - maxAge).UtcDateTime.ToString("O", CultureInfo.InvariantCulture));
+            return cmd.ExecuteNonQuery();
+        }
+    }
+
     /// <summary>Rows waiting to be sent. Reported in the heartbeat.</summary>
     public long Depth()
     {

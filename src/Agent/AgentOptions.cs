@@ -39,4 +39,12 @@ public sealed class AgentOptions
 
     /// <summary>Rows per POST. The design caps batches at 500.</summary>
     public int MaxBatchRows { get; set; } = 500;
+
+    /// <summary>First retry delay after a failed upload. Doubles per failure up to BackoffMaxS, with jitter.</summary>
+    public int BackoffInitialS { get; set; } = 5;
+
+    public int BackoffMaxS { get; set; } = 300;
+
+    /// <summary>"No data loss" holds for outages shorter than this; older rows are dropped, oldest first.</summary>
+    public int OutboxMaxAgeDays { get; set; } = 7;
 }
