@@ -1,45 +1,68 @@
 # Machine Monitoring PoC
 
-Proof of concept for the machine monitoring design: a .NET agent on each
-Windows machine samples CPU, memory and drives into a local SQLite outbox and
-pushes batches to one ASP.NET Core server, which persists them in
-PostgreSQL + TimescaleDB and serves a small portal.
+Proof of concept for the Machine Monitoring Solution design: a .NET agent on
+each Windows machine samples CPU, memory and drives into a local SQLite
+outbox and pushes batches over HTTPS to one ASP.NET Core server, which
+persists them in PostgreSQL + TimescaleDB and serves a small browser portal.
 
-This README grows with the code. The final version covers prerequisites, how
-to build and run, what is implemented, simplifications, what was left out, and
-what would change in production.
+The five things the brief asked to see, and where they live:
 
-## Layout
+| Asked for | Where |
+|-----------|-------|
+| A Windows agent collecting CPU, memory and disk | `src/Agent/Sampling`, `src/Agent/SamplingLoop.cs` |
+| Sending the data to a central API | `src/Agent/Uploader.cs` → `POST /v1/samples` in `src/Server/Ingest` |
+| Persisting the received data | `src/Server/Db/schema.sql`, `src/Server/Ingest/PostgresSampleStore.cs` |
+| A simple way to retrieve or view the data | `src/Server/Api/QueryApi.cs`, `src/Server/wwwroot/index.html` |
+| Resilience when the server is unavailable | `src/Agent/Outbox.cs`, `src/Agent/Backoff.cs`, `scripts/outage-demo.ps1` |
 
-| Path | Role |
-|------|------|
-| `src/Shared` | DTOs shared by agent and server (the wire contract) |
-| `src/Agent` | Worker: samplers, SQLite outbox, uploader, config cache |
-| `src/Server` | ASP.NET Core: `POST /v1/samples`, `GET /api/*`, static portal |
-| `docker-compose.yml` | TimescaleDB (PostgreSQL 17) for local use |
-| `scripts/` | Helper scripts to run the server, the agent and the outage demo |
+The commit history is one step per commit, in the order listed under
+[Progress](#progress), so the evolution can be followed commit by commit.
 
 ## Prerequisites
 
-- .NET SDK 10.0
-- Docker Desktop (for the database only)
-- Windows (the agent reads Windows performance counters)
-- The ASP.NET Core dev certificate, trusted: `dotnet dev-certs https --trust`.
-  If you would rather not trust it, the agent's Development profile sets
-  `TrustAnyServerCertificate`, which skips validation (development only).
+- Windows 10 or 11 (the agent reads Windows performance counters and Win32
+  memory APIs; it is Windows-only by design)
+- .NET SDK 10.0 (built with 10.0.402)
+- Docker Desktop, for the database only
+- The ASP.NET Core development certificate. Either trust it once with
+  `dotnet dev-certs https --trust`, or leave the agent's Development profile
+  as is: it sets `TrustAnyServerCertificate`, which skips validation and logs
+  a warning. Development only.
 
-## Run (target reviewer path)
+NuGet packages: `Npgsql`, `Microsoft.Data.Sqlite`,
+`System.Diagnostics.PerformanceCounter`,
+`Microsoft.Extensions.Hosting.WindowsServices`. The portal loads Chart.js from
+a CDN. No ORM, no front-end build.
+
+## Build and run
 
 ```powershell
-docker compose up -d
-.\scripts\run-server.ps1   # in one terminal
-.\scripts\run-agent.ps1    # in another
-# then open https://localhost:7181
+docker compose up -d                 # TimescaleDB on PostgreSQL 17, port 5432, user mm / mm, db monitoring
+dotnet build MachineMonitoring.slnx
+.\scripts\run-server.ps1             # terminal 1: https://localhost:7181 (schema is applied on start)
+.\scripts\run-agent.ps1              # terminal 2: samples this machine and uploads every 10 s
 ```
 
-The agent's Development profile uses short intervals (2 s CPU tick, 10 s
-cpu_mem, 30 s drives) so a demo shows data within seconds. `appsettings.json`
-holds the design values (60 s and 5 min).
+Then open <https://localhost:7181>. Within about 30 seconds the fleet table
+shows this machine as online with its CPU, memory, drives and active user, and
+the chart fills in. Both scripts run with the Development profile, which uses
+short intervals (2 s CPU tick, 10 s cpu_mem, 30 s drives, 10 s upload) so a
+demo shows data quickly. `appsettings.json` in each project holds the design
+values (60 s, 5 min).
+
+Useful endpoints:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /v1/samples` | Ingest. Needs `X-Api-Key`. Body and reply shapes are in `src/Shared`. |
+| `GET /api/machines` | Fleet overview from `machine_latest`, with status. |
+| `GET /api/machines/{id}/metrics?from&to` | CPU and memory points; resolution chosen from the range. |
+| `GET /api/projects` | Latest project folder sizes per machine, grouped by project. |
+| `GET /health` | Liveness. |
+
+The one registered machine is `WS-DEV-01` with key `dev-key-ws-dev-01`, in
+the server's `appsettings.json` under `Machines`. To run a second agent, add
+another entry and point the second agent's `Agent:ApiKey` at it.
 
 ## Outage demo
 
@@ -59,6 +82,131 @@ delay, never a hole. Finish by pressing Ctrl+C in the agent window: the final
 heartbeat flags a clean stop and the fleet table shows the machine as off,
 whereas killing the process leaves it unresponsive after three missed
 heartbeats.
+
+## What is implemented
+
+**Agent** (`src/Agent`, a .NET worker that is a console app by default)
+
+- `CpuSampler` reads `Processor Information\% Processor Time\_Total` every
+  tick and reports the average when the interval closes, so a value is a mean
+  over the window, not a snapshot. `MemorySampler` calls `GlobalMemoryStatusEx`.
+  `DriveSampler` keeps fixed, ready drives only. `SamplingLoop` is the one
+  timer that drives them.
+- `Outbox` writes every sample to `data/outbox.db` (SQLite, WAL,
+  `synchronous=FULL`) before anything is sent. `seq` is
+  `INTEGER PRIMARY KEY AUTOINCREMENT`, so it is never reused even after
+  acknowledged rows are deleted. The install id lives in the same file, so
+  sequence and install id reset together if the file is wiped.
+- `Uploader` posts the oldest rows (at most 500) with a heartbeat and deletes
+  rows only after the reply's `ack_through` covers them. A full batch is
+  followed immediately by the next one. A heartbeat-only post goes out when
+  the outbox is empty.
+- `Backoff`: every failure (connection refused, timeout, 5xx, bad
+  certificate) waits an exponentially growing, jittered delay while sampling
+  continues; a 429 honours `Retry-After`. The outbox is capped at 7 days and
+  logs an error if it ever drops rows.
+- `ConfigCache` persists the last server config in the outbox's meta table
+  and reports its version in every heartbeat. Intervals change without a
+  restart. The heartbeat also carries active user, outbox depth, restart
+  count, last upload error and a `stopping` flag on clean shutdown.
+- `ProjectWalker` sizes each first-level folder under the configured project
+  root on a lowest-priority thread, on its own schedule.
+- `ServiceInstaller`: `--install` and `--uninstall` register the same binary
+  as a Windows Service with auto start and restart-twice-then-stop recovery.
+
+**Server** (`src/Server`, one ASP.NET Core app)
+
+- `POST /v1/samples`: identity from the `X-Api-Key` header, never the body.
+  `IngestThrottle` bounds batches in flight and answers 429 with
+  `Retry-After` beyond that. `BatchValidator` checks shape. The reply carries
+  config only when the agent's version is behind.
+- `PostgresSampleStore`: one transaction per batch upserts the machine,
+  inserts history with `ON CONFLICT DO NOTHING` (one `NpgsqlBatch`, one round
+  trip) and upserts `machine_latest`. A resend stores nothing new and acks the
+  same number. A payload that does not parse is logged and acked rather than
+  rejected, so a poison row cannot wedge an agent.
+- `schema.sql` is the design's tables made literal, embedded in the server
+  and applied idempotently on every start: `machines`, `machine_latest`,
+  hypertables `cpu_mem_samples`, `drive_samples`, `project_sizes`; an hourly
+  continuous aggregate with avg/min/max; compression after 7 days; 13-month
+  retention. All as policies, not jobs.
+- `QueryApi`: the fleet overview is one query over `machine_latest` and never
+  scans history. Status is computed at read time with hysteresis
+  (unresponsive after three missed heartbeats, online on the next one, off
+  after a stopping heartbeat). Metrics pick raw, 5-minute or hourly
+  resolution from the range; the hourly path reads the continuous aggregate.
+- `wwwroot/index.html`: fleet table, one CPU/memory chart on a single
+  0 to 100 % axis with a real-time x-axis, and a projects table. Refreshes
+  every 10 s. Chart.js, no framework, no build step.
+
+**Shared** (`src/Shared`): the wire contract as records, snake_case JSON, so
+agent and server can never disagree on the shape.
+
+## Assumptions and simplifications
+
+| Design | PoC | Why |
+|--------|-----|-----|
+| Mutual TLS with AD CS machine certificates | Per-machine API key in `X-Api-Key` over the dev HTTPS certificate | mTLS needs a domain CA. Identity is still taken from the credential, never the body. |
+| Machines registered and approved in the admin area | `Machines` list in the server's `appsettings.json` | No admin area in the PoC. |
+| Config per machine or group, edited in the admin area | One fleet-wide `AgentConfig` in appsettings, hot-reloaded | Same protocol (versioned, sent only when behind), simplest possible source. Bump `Version` when values change: agents compare versions, not values. |
+| Nightly folder walk kept current by the NTFS USN journal; allocated size on disk | Timed full walk; logical file size | The journal subscription is the one piece that is real engineering effort; the walk shows the data path. |
+| 5-minute and hourly rollups | Hourly continuous aggregate; 5-minute buckets computed on the fly | Shows the pattern once; two days of raw rows bucket cheaply. |
+| Status transitions tracked by the server | Status computed from `last_seen` at read time | Gives the same hysteresis with no state to maintain. |
+| Dedup key `(machine_id, install_id, seq)` | Unique index also includes `time` | TimescaleDB requires the partition column in unique indexes. A resend carries the same `sampled_at`, so nothing changes in practice. |
+| Agent state under ProgramData, MSI install | `data/` beside the content root, `--install` via sc.exe | PoC-sized version of the same idea. |
+| Agent validates the server certificate | Development profile sets `TrustAnyServerCertificate` | So the reviewer path works without trusting the dev certificate first. Off in `appsettings.json`. |
+| Clock drift flagged beyond 5 min | `received_at` stored beside `sampled_at`, not yet compared | The data is there; the check is a one-line query. |
+
+Machine-specific overrides (such as a real `ProjectRoot`) go in the
+git-ignored `src/Server/appsettings.Local.json`, so local paths never reach
+the repository.
+
+## Left out on purpose
+
+Admin area, groups, users and roles, Entra ID single sign-on, React, MSI
+rollout through Group Policy or Intune, agent self-update, the USN journal
+and `FileSystemWatcher` fallback, inventory (WMI) and the Machines page, the
+5-minute rollup, authentication on the query API and portal, and automated
+tests. The brief asked for the main end-to-end flow, and each of these would
+have added surface without changing how the flow works.
+
+## What I would do differently in production
+
+- **Identity**: mTLS with AD CS auto-enrolled, non-exportable machine
+  certificates; thumbprint to machine mapping and the pending-approval flow
+  in the database, with an admin UI. Unknown certificates never auto-register.
+- **Configuration**: per machine and group in the database, edited in the
+  admin area, with the same versioned push; a config hash rather than a
+  hand-bumped version number.
+- **Schema management**: a real migration tool (DbUp or Flyway) instead of
+  one idempotent script, with the TimescaleDB policies as migrations.
+- **Tests**: unit tests for `Backoff`, `BatchValidator`, `MachineStatus` and
+  `Outbox`; integration tests for ingest against a Testcontainers
+  TimescaleDB, including the resend and poison-row cases; a contract test on
+  the shared DTOs.
+- **Observability**: structured logs through OpenTelemetry, metrics for
+  batches per second, rejected batches, 429s, queue depth per machine and
+  ingest latency; alerts on server disk at 70 % and 85 %.
+- **Agent hardening**: state under `%ProgramData%`, a signed MSI, code-signed
+  binaries, the USN journal for folder sizes, allocated size on disk, Event
+  Log integration, and a watchdog on the sampler thread.
+- **Query API**: authentication through Entra ID, pagination, a 5-minute
+  continuous aggregate, and the clock-drift flag from `received_at`.
+- **Operations**: database on its own volume with backups and restore
+  drills, the API behind a reverse proxy with a real certificate, a
+  connection-pool-sized ingest limit, and a load test at 1,000 agents before
+  the first rollout.
+
+## Layout
+
+| Path | Role |
+|------|------|
+| `src/Shared` | DTOs shared by agent and server (the wire contract) |
+| `src/Agent` | Worker: samplers, SQLite outbox, uploader, config cache, project walker, service installer |
+| `src/Server` | ASP.NET Core: `POST /v1/samples`, `GET /api/*`, schema, static portal |
+| `docker-compose.yml` | TimescaleDB (PostgreSQL 17) for local use |
+| `scripts/` | `run-server.ps1`, `run-agent.ps1`, `outage-demo.ps1` |
+| `CLAUDE.md` | Constraints and working style for AI-assisted sessions |
 
 ## Progress
 
@@ -80,113 +228,16 @@ Each step is one commit, in this order.
 - [x] 14. Hourly continuous aggregate, compression and retention policies
 - [x] 15. Stretch: Windows Service install flag, project root walk
 - [x] 16. Outage demo script
-- [ ] 17. Final README
+- [x] 17. Final README
 
-## Implemented so far
+## Troubleshooting
 
-- **Wire contract** (`src/Shared`): `SampleBatch` carries `machine_id`,
-  `install_id`, agent version, `samples[]` and a `heartbeat`; the reply is
-  `ack_through` plus config when the agent's config version is behind. Sample
-  payloads stay raw JSON so the outbox and ingest are kind-agnostic.
-- **Ingest** (`src/Server/Ingest`): identity from the `X-Api-Key` header
-  (registered under `Machines` in `appsettings.json`), never from the body.
-  Batches are shape-checked (seq strictly increasing, known kinds, at most
-  500 rows) and acked. The store is in memory until step 8.
-- **Samplers** (`src/Agent/Sampling`): CPU from the
-  `Processor Information\% Processor Time\_Total` counter, read every tick and
-  averaged over the interval; memory from `GlobalMemoryStatusEx`; fixed ready
-  drives from `DriveInfo`. One timer drives all three.
-- **Outbox** (`src/Agent/Outbox.cs`): every sample is written to
-  `data/outbox.db` (SQLite, WAL, `synchronous=FULL`) before anything is sent.
-  `seq` is `INTEGER PRIMARY KEY AUTOINCREMENT`, so it is never reused even
-  after acknowledged rows are deleted. The install id is stored in the same
-  file, so sequence and install id reset together if the file is wiped.
-- **Uploader** (`src/Agent/Uploader.cs`): on its own timer it posts the oldest
-  rows (at most 500) with a heartbeat to `POST /v1/samples` and deletes rows
-  only after the reply's `ack_through` covers them. A full batch is followed
-  immediately by the next one so a backlog drains quickly. A heartbeat-only
-  post still goes out when the outbox is empty.
-- **Schema** (`src/Server/Db/schema.sql`): `machines`, `machine_latest`, and
-  the hypertables `cpu_mem_samples` and `drive_samples`, exactly as in the
-  design. Embedded in the server and applied on every start (idempotent, with
-  a retry loop so `docker compose up -d` followed by `dotnet run` works). The
-  idempotency key `(machine_id, install_id, seq)` is a unique index; TimescaleDB
-  requires the partition column in it, so `time` is included, which changes
-  nothing because a resend carries the same `sampled_at`.
-- **Persistence** (`src/Server/Ingest/PostgresSampleStore.cs`): one
-  transaction per batch upserts the `machines` row, inserts history rows with
-  `ON CONFLICT DO NOTHING` (one `NpgsqlBatch`, one round trip), and upserts
-  `machine_latest` from the heartbeat plus the newest sample of each kind.
-  A heartbeat-only post refreshes `last_seen` without blanking the sample
-  columns. A payload that does not parse is logged and acknowledged rather
-  than rejected, so a poison row cannot wedge an agent.
-- **Resilience, agent side** (`src/Agent/Backoff.cs`, `Uploader.cs`): every
-  failure (connection refused, timeout, 5xx, bad certificate) takes the same
-  path: exponential backoff with jitter (5 s doubling to 5 min in the design
-  profile, 2 s to 30 s in Development) while sampling continues and the
-  outbox grows. A 429 honours the server's `Retry-After` plus jitter. On
-  recovery the backlog drains in 500-row batches. The outbox is capped at 7
-  days; past that the oldest rows are dropped with an error log, which is
-  the one place the "no data loss" promise ends by design.
-- **Resilience, server side** (`src/Server/Ingest/IngestThrottle.cs`): a
-  semaphore bounds how many batches are inside the database transaction at
-  once (`Ingest:MaxInFlight`, default 16). Beyond that the server answers
-  `429` with `Retry-After` immediately instead of queueing. Shedding load is
-  free because the rows are still safe in the agent's outbox. Try it with
-  `$env:Ingest__MaxInFlight=1` and a few parallel posts.
-- **Query API** (`src/Server/Api`): `GET /api/machines` is one query over
-  `machines` joined to `machine_latest` and never scans history. Status is
-  computed at read time with hysteresis: unresponsive after three heartbeat
-  intervals of silence, online again on the next heartbeat.
-  `GET /api/machines/{id}/metrics?from&to` picks the resolution from the
-  range (raw up to 2 h, 5-minute buckets up to 2 days, hourly beyond) so a
-  chart never reads more than a few thousand points. Buckets are computed
-  with `time_bucket` on the fly until the continuous aggregate lands.
-- **Portal** (`src/Server/wwwroot/index.html`): one static page served by the
-  server, Chart.js from a CDN, no build step. The fleet table (status with
-  hysteresis, last seen, CPU, memory, drives, active user, agent version,
-  outbox depth) refreshes every 10 s; clicking a row charts that machine's
-  CPU and memory-used percentages on one 0 to 100 % axis for the last hour,
-  6 h, 24 h or 7 days. The x-axis is real time, so gaps keep their width.
-- **Config and heartbeat** (`src/Server/Config`, `src/Agent/ConfigCache.cs`):
-  the server holds one fleet-wide `AgentConfig` in `appsettings.json`
-  (version, intervals, project root, groups), read through an options
-  monitor so editing the file while the server runs pushes the change on the
-  next heartbeat. The agent reports its config version in every heartbeat;
-  the server sends config only when that version is behind. The agent
-  persists the last config in the outbox's meta table so it starts with the
-  right intervals even if the server is down. The heartbeat also carries the
-  restart count (persisted), the last upload error, and a `stopping` flag on
-  the final heartbeat of a clean shutdown, which the portal shows as "off"
-  rather than "unresponsive".
-- **Rollups, compression, retention** (`src/Server/Db/schema.sql`, bottom):
-  `cpu_mem_hourly` is a continuous aggregate (avg/min/max per machine per
-  hour) refreshed by policy every 10 minutes and queried with real-time
-  aggregation, so the current hour is never missing. Raw chunks older than
-  7 days are compressed, segmented by machine. Raw tables and the aggregate
-  are dropped after 13 months. All of it is declared in the schema and
-  applied idempotently on start; the hourly path of the metrics endpoint
-  reads the aggregate. The design's 5-minute rollup is left as on-the-fly
-  bucketing to show the pattern once.
-- **Windows Service flag** (`src/Agent/ServiceInstaller.cs`): the same binary
-  is a console app when started from a prompt and a Windows Service when the
-  Service Control Manager starts it. From an elevated prompt,
-  `Agent.exe --install` registers it (auto start, recovery: restart twice
-  then stop, matching the design's "stop after three failures") and
-  `Agent.exe --uninstall` removes it. Publish first so the exe is
-  self-contained: `dotnet publish src/Agent -c Release -r win-x64`.
-- **Project root walk** (`src/Agent/ProjectWalker.cs`, `Sampling/ProjectSampler.cs`):
-  when the server's config names a `ProjectRoot`, the agent walks it on its
-  own schedule (nightly by default, 2 min in Development) on a
-  lowest-priority thread: each first-level folder is a project, sized as the
-  sum of its file lengths, never following junctions. A root change triggers
-  an immediate walk. Rows land in the `project_sizes` hypertable with an
-  as-of time; `GET /api/projects` returns the latest walk per machine grouped
-  by project (headline = sum of copies, no deduplication, copies that differ
-  in size are flagged) and the portal shows a Projects section once any
-  machine has reported one. To try it locally, put your own path in the
-  git-ignored `src/Server/appsettings.Local.json`:
-
-  ```json
-  { "AgentConfig": { "Version": 3, "CpuMemIntervalS": 10, "DriveIntervalS": 30, "ProjectRoot": "C:/path/to/projects" } }
-  ```
+- **Agent logs "certificate" errors**: trust the dev certificate
+  (`dotnet dev-certs https --trust`) or run with the Development profile.
+- **Server logs "Database not ready; retrying"**: PostgreSQL is still
+  starting; the server retries for a minute. Check `docker compose ps`.
+- **Port 7181 or 5432 in use**: change `applicationUrl` in
+  `src/Server/Properties/launchSettings.json` and `Agent:ServerUrl`, or the
+  port mapping in `docker-compose.yml` and `ConnectionStrings:Monitoring`.
+- **Reset everything**: `docker compose down -v` drops the database;
+  deleting `src/Agent/data/` gives the agent a new install id and seq 1.

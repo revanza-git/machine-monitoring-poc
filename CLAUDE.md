@@ -40,6 +40,9 @@ readable code over frameworks and cleverness.
   `POST /v1/samples`, `Db/*`, `Api/*`, `wwwroot/index.html`.
 - `docker-compose.yml` TimescaleDB on PostgreSQL 17 (user `mm`, password
   `mm`, database `monitoring`, port 5432).
+- `src/Server/appsettings.Local.json` is git-ignored and holds machine-specific
+  overrides such as `AgentConfig:ProjectRoot`. Never put local paths in a
+  committed file.
 - `scripts/` run-server, run-agent, outage demo.
 
 ## Commands
