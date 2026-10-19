@@ -20,7 +20,7 @@ builder.Services.AddSingleton(NpgsqlDataSource.Create(
     ?? throw new InvalidOperationException("ConnectionStrings:Monitoring is missing")));
 
 builder.Services.AddSingleton<MachineRegistry>();
-builder.Services.AddSingleton<ISampleStore, InMemorySampleStore>();
+builder.Services.AddSingleton<ISampleStore, PostgresSampleStore>();
 
 var app = builder.Build();
 

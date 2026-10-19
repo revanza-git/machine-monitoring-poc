@@ -52,7 +52,7 @@ Each step is one commit, in this order.
 - [x] 5. Agent: SQLite outbox with increasing sequence numbers, persisted install id
 - [x] 6. Agent: uploader with batching and delete-after-ack
 - [x] 7. Server: PostgreSQL + TimescaleDB schema applied on startup
-- [ ] 8. Server: ingest persists history and upserts `machine_latest` in one transaction, idempotent
+- [x] 8. Server: ingest persists history and upserts `machine_latest` in one transaction, idempotent
 - [ ] 9. Agent: backoff with jitter, batch cap, `429 Retry-After` handling
 - [ ] 10. Server: `429` back-pressure under an in-flight limit
 - [ ] 11. Server: query API for fleet and per-machine metrics
@@ -94,3 +94,10 @@ Each step is one commit, in this order.
   idempotency key `(machine_id, install_id, seq)` is a unique index; TimescaleDB
   requires the partition column in it, so `time` is included, which changes
   nothing because a resend carries the same `sampled_at`.
+- **Persistence** (`src/Server/Ingest/PostgresSampleStore.cs`): one
+  transaction per batch upserts the `machines` row, inserts history rows with
+  `ON CONFLICT DO NOTHING` (one `NpgsqlBatch`, one round trip), and upserts
+  `machine_latest` from the heartbeat plus the newest sample of each kind.
+  A heartbeat-only post refreshes `last_seen` without blanking the sample
+  columns. A payload that does not parse is logged and acknowledged rather
+  than rejected, so a poison row cannot wedge an agent.
