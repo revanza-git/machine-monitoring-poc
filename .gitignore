@@ -493,3 +493,6 @@ src/Agent/data/
 
 # Scratch output from demo scripts
 scripts/*.log
+
+# Machine-specific server overrides (local paths, never committed)
+src/Server/appsettings.Local.json

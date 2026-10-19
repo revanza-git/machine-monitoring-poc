@@ -31,6 +31,15 @@ public sealed record MetricPoint(
     long MemUsedMb,
     long MemTotalMb);
 
+/// <summary>One project across the fleet: headline is the sum of copies, each copy carries its as-of time.</summary>
+public sealed record ProjectSummary(
+    string Name,
+    long TotalBytes,
+    bool SizesDiffer,
+    IReadOnlyList<ProjectCopy> Copies);
+
+public sealed record ProjectCopy(string Machine, string Root, long Bytes, int Files, DateTimeOffset AsOf);
+
 public sealed record MetricsResponse(
     long MachineId,
     DateTimeOffset From,

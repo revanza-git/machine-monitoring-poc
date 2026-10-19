@@ -35,6 +35,9 @@ public sealed class AgentOptions
 
     public int DriveIntervalS { get; set; } = 300;
 
+    /// <summary>How often the project root (if the server configured one) is walked. Nightly in the design.</summary>
+    public int ProjectIntervalS { get; set; } = 86400;
+
     /// <summary>How often the outbox is drained. Also the heartbeat cadence.</summary>
     public int UploadIntervalS { get; set; } = 60;
 

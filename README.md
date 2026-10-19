@@ -59,7 +59,7 @@ Each step is one commit, in this order.
 - [x] 12. Portal: fleet table and one chart
 - [x] 13. Versioned config in the ack reply, heartbeat fields
 - [x] 14. Hourly continuous aggregate, compression and retention policies
-- [ ] 15. Stretch: Windows Service install flag, project root walk
+- [x] 15. Stretch: Windows Service install flag, project root walk
 - [ ] 16. Outage demo script
 - [ ] 17. Final README
 
@@ -156,3 +156,18 @@ Each step is one commit, in this order.
   then stop, matching the design's "stop after three failures") and
   `Agent.exe --uninstall` removes it. Publish first so the exe is
   self-contained: `dotnet publish src/Agent -c Release -r win-x64`.
+- **Project root walk** (`src/Agent/ProjectWalker.cs`, `Sampling/ProjectSampler.cs`):
+  when the server's config names a `ProjectRoot`, the agent walks it on its
+  own schedule (nightly by default, 2 min in Development) on a
+  lowest-priority thread: each first-level folder is a project, sized as the
+  sum of its file lengths, never following junctions. A root change triggers
+  an immediate walk. Rows land in the `project_sizes` hypertable with an
+  as-of time; `GET /api/projects` returns the latest walk per machine grouped
+  by project (headline = sum of copies, no deduplication, copies that differ
+  in size are flagged) and the portal shows a Projects section once any
+  machine has reported one. To try it locally, put your own path in the
+  git-ignored `src/Server/appsettings.Local.json`:
+
+  ```json
+  { "AgentConfig": { "Version": 3, "CpuMemIntervalS": 10, "DriveIntervalS": 30, "ProjectRoot": "C:/path/to/projects" } }
+  ```

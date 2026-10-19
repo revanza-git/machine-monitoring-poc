@@ -90,6 +90,19 @@
   <div class="chart-wrap"><canvas id="chart" role="img" aria-label="CPU and memory usage over time"></canvas></div>
 </section>
 
+<section class="card" id="projects-card" hidden>
+  <div class="row">
+    <h2>Projects</h2>
+    <span class="sub" id="projects-sub"></span>
+  </div>
+  <div style="overflow-x:auto">
+  <table id="projects">
+    <thead><tr><th>Project</th><th class="num">Total (sum of copies)</th><th>Copies</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  </div>
+</section>
+
 <script>
   const REFRESH_MS = 10_000;
   let selectedId = null, rangeHours = 1, chart = null;
@@ -195,7 +208,24 @@
     };
   });
 
-  async function refresh() { try { await loadFleet(); await loadChart(); } catch (e) { console.error(e); } }
+  const size = (b) => b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(0) + ' MB' : (b / 1e3).toFixed(0) + ' kB';
+
+  async function loadProjects() {
+    const rows = await (await fetch('/api/projects')).json();
+    const card = document.getElementById('projects-card');
+    card.hidden = rows.length === 0;           // the section only appears once some agent has a project root
+    if (!rows.length) return;
+    document.querySelector('#projects tbody').innerHTML = rows.map(p => `
+      <tr>
+        <td><strong>${p.name}</strong>${p.sizes_differ ? ' <span class="muted" title="copies differ in size">⚠ copies differ</span>' : ''}</td>
+        <td class="num">${size(p.total_bytes)}</td>
+        <td>${p.copies.map(c => `${c.machine} · ${size(c.bytes)} <span class="muted">(${c.files.toLocaleString()} files, as of ${ago(c.as_of)})</span>`).join('<br>')}</td>
+      </tr>`).join('');
+    document.getElementById('projects-sub').textContent =
+      `${rows.length} project${rows.length === 1 ? '' : 's'} · totals are sums of copies, no deduplication`;
+  }
+
+  async function refresh() { try { await loadFleet(); await loadChart(); await loadProjects(); } catch (e) { console.error(e); } }
   refresh();
   setInterval(refresh, REFRESH_MS);
 </script>

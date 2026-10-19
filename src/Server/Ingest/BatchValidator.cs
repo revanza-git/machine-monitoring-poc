@@ -18,7 +18,7 @@ public static class BatchValidator
         foreach (var s in batch.Samples)
         {
             if (s.Seq <= previous) return "seq must be positive and strictly increasing";
-            if (s.Kind is not (SampleKinds.CpuMem or SampleKinds.Drive)) return $"unknown kind '{s.Kind}'";
+            if (s.Kind is not (SampleKinds.CpuMem or SampleKinds.Drive or SampleKinds.Project)) return $"unknown kind '{s.Kind}'";
             if (s.SampledAt == default) return "sampled_at is required";
             previous = s.Seq;
         }

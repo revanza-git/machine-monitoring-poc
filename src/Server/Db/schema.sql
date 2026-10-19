@@ -72,6 +72,25 @@ CREATE TABLE IF NOT EXISTS drive_samples (
 SELECT create_hypertable('drive_samples', 'time', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS drive_samples_machine_time ON drive_samples (machine_id, time DESC);
 
+-- One row per project folder per walk. as_of is when the walk finished;
+-- the portal shows it beside every figure. Kept at full resolution for the
+-- whole retention period: the volume is small and there is nothing to roll up.
+CREATE TABLE IF NOT EXISTS project_sizes (
+    time         timestamptz NOT NULL,
+    machine_id   bigint      NOT NULL REFERENCES machines (machine_id),
+    install_id   uuid        NOT NULL,
+    seq          bigint      NOT NULL,
+    received_at  timestamptz NOT NULL,
+    root         text        NOT NULL,
+    project_name text        NOT NULL,
+    bytes        bigint      NOT NULL,
+    files        int         NOT NULL,
+    as_of        timestamptz NOT NULL,
+    UNIQUE (machine_id, install_id, seq, project_name, time)
+);
+SELECT create_hypertable('project_sizes', 'time', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS project_sizes_latest ON project_sizes (machine_id, root, project_name, time DESC);
+
 -- ---------------------------------------------------------------------------
 -- Rollups, compression and retention: policies, not jobs someone maintains.
 -- ---------------------------------------------------------------------------
@@ -117,3 +136,4 @@ SELECT add_compression_policy('drive_samples', INTERVAL '7 days', if_not_exists 
 SELECT add_retention_policy('cpu_mem_samples', INTERVAL '13 months', if_not_exists => TRUE);
 SELECT add_retention_policy('drive_samples',   INTERVAL '13 months', if_not_exists => TRUE);
 SELECT add_retention_policy('cpu_mem_hourly',  INTERVAL '13 months', if_not_exists => TRUE);
+SELECT add_retention_policy('project_sizes',   INTERVAL '13 months', if_not_exists => TRUE);

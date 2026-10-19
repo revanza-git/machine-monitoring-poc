@@ -72,6 +72,11 @@ public sealed class PostgresSampleStore(NpgsqlDataSource db, ILogger<PostgresSam
                         history.BatchCommands.Add(DriveInsert(machineId, batch.InstallId, s, receivedAt, d));
                     latestDrives = (s, drives);
                     break;
+
+                case SampleKinds.Project when TryParse<ProjectData>(s, out var project):
+                    foreach (var f in project.Folders)
+                        history.BatchCommands.Add(ProjectInsert(machineId, batch.InstallId, s, receivedAt, project, f));
+                    break;
             }
         }
 
@@ -127,6 +132,26 @@ public sealed class PostgresSampleStore(NpgsqlDataSource db, ILogger<PostgresSam
         cmd.Parameters.Add(new() { Value = d.Name });
         cmd.Parameters.Add(new() { Value = d.TotalBytes });
         cmd.Parameters.Add(new() { Value = d.FreeBytes });
+        return cmd;
+    }
+
+    private static NpgsqlBatchCommand ProjectInsert(long machineId, Guid installId, Sample s, DateTimeOffset receivedAt, ProjectData p, ProjectEntry f)
+    {
+        var cmd = new NpgsqlBatchCommand("""
+            INSERT INTO project_sizes (time, machine_id, install_id, seq, received_at, root, project_name, bytes, files, as_of)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT DO NOTHING
+            """);
+        cmd.Parameters.Add(new() { Value = s.SampledAt.UtcDateTime });
+        cmd.Parameters.Add(new() { Value = machineId });
+        cmd.Parameters.Add(new() { Value = installId });
+        cmd.Parameters.Add(new() { Value = s.Seq });
+        cmd.Parameters.Add(new() { Value = receivedAt.UtcDateTime });
+        cmd.Parameters.Add(new() { Value = p.Root });
+        cmd.Parameters.Add(new() { Value = f.Name });
+        cmd.Parameters.Add(new() { Value = f.Bytes });
+        cmd.Parameters.Add(new() { Value = f.Files });
+        cmd.Parameters.Add(new() { Value = p.AsOf.UtcDateTime });
         return cmd;
     }
 

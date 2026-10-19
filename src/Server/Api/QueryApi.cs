@@ -15,7 +15,48 @@ public static class QueryApi
     {
         app.MapGet("/api/machines", ListMachinesAsync);
         app.MapGet("/api/machines/{id:long}/metrics", MetricsAsync);
+        app.MapGet("/api/projects", ProjectsAsync);
         return app;
+    }
+
+    /// <summary>
+    /// Newest walk per (machine, root), grouped by project name. Every walk is
+    /// a full snapshot and all its rows share one time, so a folder missing
+    /// from the newest walk has been renamed or deleted and drops out of the
+    /// view instead of lingering with an ever-older as-of time.
+    /// Totals are sums of copies with no cross-machine deduplication, as the
+    /// design states; copies whose sizes differ are flagged.
+    /// </summary>
+    private static async Task<IResult> ProjectsAsync(NpgsqlDataSource db, CancellationToken ct)
+    {
+        await using var cmd = db.CreateCommand("""
+            SELECT l.project_name, m.name, l.root, l.bytes, l.files, l.as_of
+            FROM (
+                SELECT machine_id, root, max(time) AS time
+                FROM project_sizes
+                GROUP BY machine_id, root
+            ) newest
+            JOIN project_sizes l USING (machine_id, root, time)
+            JOIN machines m USING (machine_id)
+            ORDER BY l.project_name, m.name
+            """);
+
+        var copies = new List<(string Project, ProjectCopy Copy)>();
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        while (await r.ReadAsync(ct))
+            copies.Add((r.GetString(0), new ProjectCopy(r.GetString(1), r.GetString(2), r.GetInt64(3), r.GetInt32(4), r.GetTime(5))));
+
+        var projects = copies
+            .GroupBy(c => c.Project)
+            .Select(g => new ProjectSummary(
+                Name: g.Key,
+                TotalBytes: g.Sum(c => c.Copy.Bytes),
+                SizesDiffer: g.Select(c => c.Copy.Bytes).Distinct().Count() > 1,
+                Copies: g.Select(c => c.Copy).ToList()))
+            .OrderByDescending(p => p.TotalBytes)
+            .ToList();
+
+        return Results.Ok(projects);
     }
 
     private static async Task<IResult> ListMachinesAsync(

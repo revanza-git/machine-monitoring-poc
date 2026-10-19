@@ -21,6 +21,7 @@ builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection(AgentO
 builder.Services.AddSingleton<Outbox>();
 builder.Services.AddSingleton<ConfigCache>();
 builder.Services.AddHostedService<SamplingLoop>();
+builder.Services.AddHostedService<ProjectWalker>();
 builder.Services.AddHostedService<Uploader>();
 
 var host = builder.Build();

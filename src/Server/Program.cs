@@ -8,6 +8,10 @@ using Shared;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Machine-specific overrides (e.g. AgentConfig:ProjectRoot) live in a
+// git-ignored file so local paths never end up in the repository.
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+
 // Same JSON shape as the agent: snake_case, from Shared.JsonDefaults.
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
