@@ -1,0 +1,23 @@
+# PostgreSQL + TimescaleDB for the PoC. The only component that runs in Docker:
+# the agent must run on the Windows host to read real counters, and the server
+# runs with `dotnet run` so it is easy to step through.
+services:
+  db:
+    image: timescale/timescaledb:latest-pg17
+    container_name: mm-db
+    environment:
+      POSTGRES_USER: mm
+      POSTGRES_PASSWORD: mm
+      POSTGRES_DB: monitoring
+    ports:
+      - "5432:5432"
+    volumes:
+      - mm-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mm -d monitoring"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  mm-db-data:
