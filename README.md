@@ -149,3 +149,10 @@ Each step is one commit, in this order.
   applied idempotently on start; the hourly path of the metrics endpoint
   reads the aggregate. The design's 5-minute rollup is left as on-the-fly
   bucketing to show the pattern once.
+- **Windows Service flag** (`src/Agent/ServiceInstaller.cs`): the same binary
+  is a console app when started from a prompt and a Windows Service when the
+  Service Control Manager starts it. From an elevated prompt,
+  `Agent.exe --install` registers it (auto start, recovery: restart twice
+  then stop, matching the design's "stop after three failures") and
+  `Agent.exe --uninstall` removes it. Publish first so the exe is
+  self-contained: `dotnet publish src/Agent -c Release -r win-x64`.

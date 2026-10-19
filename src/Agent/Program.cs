@@ -1,6 +1,21 @@
 using Agent;
+using Microsoft.Extensions.Hosting.WindowsServices;
 
-var builder = Host.CreateApplicationBuilder(args);
+if (ServiceInstaller.TryHandle(args))
+    return;
+
+// A service starts with System32 as its current directory, so under the
+// Service Control Manager the content root (appsettings.json, data/) is the
+// executable's folder. From a console it stays the current directory.
+var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+{
+    Args = args,
+    ContentRootPath = WindowsServiceHelpers.IsWindowsService() ? AppContext.BaseDirectory : null,
+});
+
+// Console app by default; a Windows Service when the Service Control Manager
+// starts it (AddWindowsService detects that and switches lifetime and logging).
+builder.Services.AddWindowsService(o => o.ServiceName = ServiceInstaller.ServiceName);
 
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection(AgentOptions.Section));
 builder.Services.AddSingleton<Outbox>();
