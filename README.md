@@ -46,9 +46,15 @@ dotnet build MachineMonitoring.slnx
 Then open <https://localhost:7181>. Within about 30 seconds the fleet table
 shows this machine as online with its CPU, memory, drives and active user, and
 the chart fills in. Both scripts run with the Development profile, which uses
-short intervals (2 s CPU tick, 10 s cpu_mem, 30 s drives, 10 s upload) so a
-demo shows data quickly. `appsettings.json` in each project holds the design
-values (60 s, 5 min).
+short intervals (2 s CPU tick, 10 s cpu_mem, 30 s drives, 2 min project walk,
+10 s upload) so a demo shows data quickly. `appsettings.json` in each project
+holds the design values (60 s, 5 min, daily walk).
+
+The projects table stays empty until the agent is given a folder to size:
+create the git-ignored `src/Server/appsettings.Local.json` with
+`{ "AgentConfig": { "ProjectRoot": "C:/path/to/your/repos" } }`. The server
+reloads it without a restart; if the agent is already running, also bump
+`AgentConfig:Version` so it picks the change up on its next heartbeat.
 
 Useful endpoints:
 
@@ -210,7 +216,8 @@ have added surface without changing how the flow works.
 
 ## Progress
 
-Each step is one commit, in this order.
+Each step is at least one commit, in this order. Repo housekeeping and README
+fixes sit between them as their own commits.
 
 - [x] 1. Skeleton: solution, projects, Compose file, README plan
 - [x] 2. Shared contracts: sample batch, heartbeat, ack, config
