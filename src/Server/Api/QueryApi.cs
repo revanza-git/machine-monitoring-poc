@@ -103,11 +103,11 @@ public static class QueryApi
     }
 
     /// <summary>
-    /// Resolution follows the design's rule: raw for short ranges, aggregated
-    /// for long ones, so a chart never reads more than a few thousand rows.
-    /// 5-minute buckets are computed on the fly (cheap over two days); the
-    /// hourly path reads the cpu_mem_hourly continuous aggregate, which
-    /// TimescaleDB keeps current as data arrives.
+    /// Resolution follows <see cref="MetricsResolution"/>: raw up to an hour,
+    /// 5-minute buckets up to a week, hourly beyond, so a chart never reads
+    /// more than a few thousand rows. 5-minute buckets are computed on the
+    /// fly; the hourly path reads the cpu_mem_hourly continuous aggregate,
+    /// which TimescaleDB keeps current as data arrives.
     /// </summary>
     private static async Task<IResult> MetricsAsync(
         long id, DateTimeOffset? from, DateTimeOffset? to, NpgsqlDataSource db, CancellationToken ct)
@@ -116,23 +116,17 @@ public static class QueryApi
         var fromUtc = (from ?? toUtc.AddHours(-1)).ToUniversalTime();
         if (fromUtc >= toUtc) return Results.BadRequest(new { error = "from must be before to" });
 
-        var range = toUtc - fromUtc;
-        var (resolution, bucket) = range switch
-        {
-            _ when range <= TimeSpan.FromHours(2) => ("raw", (TimeSpan?)null),
-            _ when range <= TimeSpan.FromDays(2) => ("5m", TimeSpan.FromMinutes(5)),
-            _ => ("1h", TimeSpan.FromHours(1)),
-        };
+        var (resolution, bucket) = MetricsResolution.Pick(toUtc - fromUtc);
 
         await using var cmd = resolution switch
         {
-            "raw" => db.CreateCommand("""
+            MetricsResolution.Raw => db.CreateCommand("""
                 SELECT time, cpu_pct, cpu_pct, cpu_pct, mem_used_mb, mem_total_mb
                 FROM cpu_mem_samples
                 WHERE machine_id = $1 AND time >= $2 AND time < $3
                 ORDER BY time
                 """),
-            "5m" => db.CreateCommand("""
+            MetricsResolution.FiveMinute => db.CreateCommand("""
                 SELECT time_bucket($4, time) AS bucket,
                        avg(cpu_pct), min(cpu_pct), max(cpu_pct),
                        avg(mem_used_mb)::bigint, max(mem_total_mb)
@@ -152,7 +146,7 @@ public static class QueryApi
         cmd.Parameters.Add(new() { Value = id });
         cmd.Parameters.Add(new() { Value = fromUtc.UtcDateTime });
         cmd.Parameters.Add(new() { Value = toUtc.UtcDateTime });
-        if (resolution == "5m") cmd.Parameters.Add(new() { Value = bucket!.Value });
+        if (resolution == MetricsResolution.FiveMinute) cmd.Parameters.Add(new() { Value = bucket!.Value });
 
         var points = new List<MetricPoint>();
         await using var r = await cmd.ExecuteReaderAsync(ct);

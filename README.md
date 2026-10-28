@@ -152,8 +152,9 @@ heartbeats.
 - `QueryApi`: the fleet overview is one query over `machine_latest` and never
   scans history. Status is computed at read time with hysteresis
   (unresponsive after three missed heartbeats, online on the next one, off
-  after a stopping heartbeat). Metrics pick raw, 5-minute or hourly
-  resolution from the range; the hourly path reads the continuous aggregate.
+  after a stopping heartbeat). Metrics pick raw (up to 1 h), 5-minute (up to
+  7 d) or hourly resolution from the range, as the design says; the hourly
+  path reads the continuous aggregate.
 - `wwwroot/index.html`: fleet table, one CPU/memory chart on a single
   0 to 100 % axis with a real-time x-axis, and a projects table. Refreshes
   every 10 s. Chart.js, no framework, no build step.
@@ -169,7 +170,7 @@ agent and server can never disagree on the shape.
 | Machines registered and approved in the admin area | `Machines` list in the server's `appsettings.json` | No admin area in the PoC. |
 | Config per machine or group, edited in the admin area | One fleet-wide `AgentConfig` in appsettings, hot-reloaded | Same protocol (versioned, sent only when behind), simplest possible source. Bump `Version` when values change: agents compare versions, not values. |
 | Nightly folder walk kept current by the NTFS USN journal; allocated size on disk | Nightly full walk only; logical file size | The journal subscription is the one piece that is real engineering effort; the walk shows the data path. Without the journal there is no 15-minute report of changed folders: figures are as of the last walk. |
-| 5-minute and hourly rollups | Hourly continuous aggregate; 5-minute buckets computed on the fly | Shows the pattern once; two days of raw rows bucket cheaply. |
+| 5-minute and hourly rollups | Hourly continuous aggregate; 5-minute buckets computed on the fly | Shows the pattern once; a week of raw rows (about 10,000 per machine) buckets cheaply. |
 | Status transitions tracked by the server | Status computed from `last_seen` at read time | Gives the same hysteresis with no state to maintain. |
 | Dedup key `(machine_id, install_id, seq)` | Unique index also includes `time` | TimescaleDB requires the partition column in unique indexes. A resend carries the same `sampled_at`, so nothing changes in practice. |
 | Agent state under ProgramData, MSI install | `data/` beside the content root, `--install` via sc.exe | PoC-sized version of the same idea. |
@@ -224,7 +225,8 @@ added surface without changing how the flow works.
 | `src/Shared` | DTOs shared by agent and server (the wire contract) |
 | `src/Agent` | Worker: samplers, SQLite outbox, uploader, config cache, project walker, service installer |
 | `src/Server` | ASP.NET Core: `POST /v1/samples`, `GET /api/*`, schema, static portal |
-| `tests/Agent.Tests` | xunit: session-picking rules, a WTS smoke test, heartbeat JSON shape |
+| `tests/Agent.Tests` | xunit: user sampler, last-error slot, idle thread, walk schedule, heartbeat JSON shape |
+| `tests/Server.Tests` | xunit: chart resolution thresholds |
 | `docker-compose.yml` | TimescaleDB (PostgreSQL 17) for local use |
 | `scripts/` | `run-server.ps1`, `run-agent.ps1`, `outage-demo.ps1` |
 | `CLAUDE.md` | Constraints and working style for AI-assisted sessions |
