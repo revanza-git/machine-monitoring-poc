@@ -131,7 +131,7 @@
         <td><span class="status ${m.status}">${m.status}</span></td>
         <td>${ago(m.last_seen)}</td>
         <td class="num">${m.cpu_pct == null ? '—' : m.cpu_pct.toFixed(1) + '%'}</td>
-        <td>${m.mem_total_mb ? bar(pct(m.mem_used_mb, m.mem_total_mb)) + ` <span class="muted">${gb(m.mem_used_mb)} / ${gb(m.mem_total_mb)} GB</span>` : '—'}</td>
+        <td>${m.mem_total_mb ? bar(pct(m.mem_used_mb, m.mem_total_mb)) + ` <span class="muted" title="${m.commit_mb != null ? `commit charge ${gb(m.commit_mb)} of ${gb(m.commit_limit_mb)} GB` : ''}">${gb(m.mem_used_mb)} / ${gb(m.mem_total_mb)} GB</span>` : '—'}</td>
         <td class="hide-sm">${(m.drives || []).map(d => `${esc(d.name)} ${bar(pct(d.total_bytes - d.free_bytes, d.total_bytes))}`).join(' &nbsp; ')}</td>
         <td class="hide-sm">${m.active_user ? esc(m.active_user) : (m.last_user ? `<span class="muted" title="Nobody signed in; last user to sign in">${esc(m.last_user)} (last)</span>` : '—')}</td>
         <td class="hide-sm">${esc(m.agent_version ?? '—')}</td>

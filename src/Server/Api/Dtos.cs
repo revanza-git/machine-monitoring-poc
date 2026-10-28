@@ -13,6 +13,8 @@ public sealed record MachineSummary(
     double? CpuPct,
     long? MemUsedMb,
     long? MemTotalMb,
+    long? CommitMb,
+    long? CommitLimitMb,
     JsonElement? Drives,
     DateTimeOffset? DrivesAt,
     string? ActiveUser,

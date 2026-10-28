@@ -52,7 +52,7 @@ public sealed class SamplingLoop(IOptions<AgentOptions> options, ConfigCache con
                 if (now >= lastCpuMem.AddSeconds(cfg.CpuMemIntervalS) && cpu.CloseInterval() is { } cpuPct)
                 {
                     var mem = MemorySampler.Read();
-                    Queue(SampleKinds.CpuMem, now, new CpuMemData(cpuPct, mem.UsedMb, mem.TotalMb));
+                    Queue(SampleKinds.CpuMem, now, new CpuMemData(cpuPct, mem.UsedMb, mem.TotalMb, mem.CommitMb, mem.CommitLimitMb));
                     lastCpuMem = now;
                 }
             }

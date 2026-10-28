@@ -40,6 +40,9 @@ ALTER TABLE machine_latest ADD COLUMN IF NOT EXISTS stopped_at timestamptz;
 -- Added with the user sampler: the last user to sign in, from the registry,
 -- so a machine with nobody at the keyboard still says whose it is.
 ALTER TABLE machine_latest ADD COLUMN IF NOT EXISTS last_user text;
+-- Added with commit charge: the design's third memory figure.
+ALTER TABLE machine_latest ADD COLUMN IF NOT EXISTS commit_mb bigint;
+ALTER TABLE machine_latest ADD COLUMN IF NOT EXISTS commit_limit_mb bigint;
 
 -- History. Hypertables partitioned on time (sampled_at from the agent).
 -- received_at is the server clock, kept beside it for clock-drift checks.
@@ -59,6 +62,10 @@ CREATE TABLE IF NOT EXISTS cpu_mem_samples (
 );
 SELECT create_hypertable('cpu_mem_samples', 'time', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS cpu_mem_samples_machine_time ON cpu_mem_samples (machine_id, time DESC);
+-- Commit charge came later: nullable, no default, which TimescaleDB allows
+-- even on chunks that are already compressed. Older rows simply have NULL.
+ALTER TABLE cpu_mem_samples ADD COLUMN IF NOT EXISTS commit_mb bigint;
+ALTER TABLE cpu_mem_samples ADD COLUMN IF NOT EXISTS commit_limit_mb bigint;
 
 -- One row per drive per sample.
 CREATE TABLE IF NOT EXISTS drive_samples (

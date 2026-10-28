@@ -2,10 +2,16 @@ using System.Runtime.InteropServices;
 
 namespace Agent.Sampling;
 
-/// <summary>Physical memory via GlobalMemoryStatusEx, the call named in the design. Microseconds per read.</summary>
+/// <summary>
+/// Physical memory and commit charge via GlobalMemoryStatusEx, the call named
+/// in the design. Microseconds per read. Commit charge is the memory the
+/// system has promised to processes (ullTotalPageFile minus ullAvailPageFile,
+/// despite the names: that pair is the commit limit and what is left of it),
+/// which is what climbs when a leaking process is about to exhaust the box.
+/// </summary>
 public static class MemorySampler
 {
-    public readonly record struct Reading(long TotalMb, long AvailableMb)
+    public readonly record struct Reading(long TotalMb, long AvailableMb, long CommitMb, long CommitLimitMb)
     {
         public long UsedMb => TotalMb - AvailableMb;
     }
@@ -16,9 +22,12 @@ public static class MemorySampler
         if (!GlobalMemoryStatusEx(ref status))
             throw new InvalidOperationException($"GlobalMemoryStatusEx failed: {Marshal.GetLastWin32Error()}");
 
+        const ulong Mb = 1024 * 1024;
         return new Reading(
-            TotalMb: (long)(status.ullTotalPhys / (1024 * 1024)),
-            AvailableMb: (long)(status.ullAvailPhys / (1024 * 1024)));
+            TotalMb: (long)(status.ullTotalPhys / Mb),
+            AvailableMb: (long)(status.ullAvailPhys / Mb),
+            CommitMb: (long)((status.ullTotalPageFile - status.ullAvailPageFile) / Mb),
+            CommitLimitMb: (long)(status.ullTotalPageFile / Mb));
     }
 
     [StructLayout(LayoutKind.Sequential)]

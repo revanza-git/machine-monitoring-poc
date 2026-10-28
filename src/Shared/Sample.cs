@@ -30,8 +30,13 @@ public sealed record ProjectData(string Root, IReadOnlyList<ProjectEntry> Folder
 
 public sealed record ProjectEntry(string Name, long Bytes, int Files);
 
-/// <summary>Payload for <see cref="SampleKinds.CpuMem"/>. CPU is the average over the interval.</summary>
-public sealed record CpuMemData(double CpuPct, long MemUsedMb, long MemTotalMb);
+/// <summary>
+/// Payload for <see cref="SampleKinds.CpuMem"/>. CPU is the average over the
+/// interval. Commit charge and its limit are the design's third memory
+/// figure; they are optional on the wire so rows queued by an agent that
+/// predates them still parse.
+/// </summary>
+public sealed record CpuMemData(double CpuPct, long MemUsedMb, long MemTotalMb, long? CommitMb = null, long? CommitLimitMb = null);
 
 /// <summary>Payload for <see cref="SampleKinds.Drive"/>: every fixed drive at one instant.</summary>
 public sealed record DriveData(IReadOnlyList<DriveEntry> Drives);

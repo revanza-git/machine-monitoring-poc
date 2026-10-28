@@ -102,8 +102,8 @@ public sealed class PostgresSampleStore(NpgsqlDataSource db, ILogger<PostgresSam
     private static NpgsqlBatchCommand CpuMemInsert(long machineId, Guid installId, Sample s, DateTimeOffset receivedAt, CpuMemData d)
     {
         var cmd = new NpgsqlBatchCommand("""
-            INSERT INTO cpu_mem_samples (time, machine_id, install_id, seq, received_at, cpu_pct, mem_used_mb, mem_total_mb)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO cpu_mem_samples (time, machine_id, install_id, seq, received_at, cpu_pct, mem_used_mb, mem_total_mb, commit_mb, commit_limit_mb)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT DO NOTHING
             """);
         cmd.Parameters.Add(new() { Value = s.SampledAt.UtcDateTime });
@@ -114,6 +114,8 @@ public sealed class PostgresSampleStore(NpgsqlDataSource db, ILogger<PostgresSam
         cmd.Parameters.Add(new() { Value = d.CpuPct });
         cmd.Parameters.Add(new() { Value = d.MemUsedMb });
         cmd.Parameters.Add(new() { Value = d.MemTotalMb });
+        cmd.Parameters.Add(new() { Value = (object?)d.CommitMb ?? DBNull.Value, NpgsqlDbType = NpgsqlDbType.Bigint });
+        cmd.Parameters.Add(new() { Value = (object?)d.CommitLimitMb ?? DBNull.Value, NpgsqlDbType = NpgsqlDbType.Bigint });
         return cmd;
     }
 
@@ -170,8 +172,9 @@ public sealed class PostgresSampleStore(NpgsqlDataSource db, ILogger<PostgresSam
             INSERT INTO machine_latest (
                 machine_id, last_seen, active_user, agent_version, install_id,
                 outbox_depth, restart_count, last_error, config_version,
-                sampled_at, cpu_pct, mem_used_mb, mem_total_mb, drives, drives_at, stopped_at, last_user)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                sampled_at, cpu_pct, mem_used_mb, mem_total_mb, drives, drives_at, stopped_at, last_user,
+                commit_mb, commit_limit_mb)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
             ON CONFLICT (machine_id) DO UPDATE SET
                 last_seen      = EXCLUDED.last_seen,
                 stopped_at     = EXCLUDED.stopped_at,
@@ -187,6 +190,8 @@ public sealed class PostgresSampleStore(NpgsqlDataSource db, ILogger<PostgresSam
                 cpu_pct        = COALESCE(EXCLUDED.cpu_pct,      machine_latest.cpu_pct),
                 mem_used_mb    = COALESCE(EXCLUDED.mem_used_mb,  machine_latest.mem_used_mb),
                 mem_total_mb   = COALESCE(EXCLUDED.mem_total_mb, machine_latest.mem_total_mb),
+                commit_mb      = COALESCE(EXCLUDED.commit_mb,    machine_latest.commit_mb),
+                commit_limit_mb = COALESCE(EXCLUDED.commit_limit_mb, machine_latest.commit_limit_mb),
                 drives         = COALESCE(EXCLUDED.drives,       machine_latest.drives),
                 drives_at      = COALESCE(EXCLUDED.drives_at,    machine_latest.drives_at)
             """, conn);
@@ -208,6 +213,8 @@ public sealed class PostgresSampleStore(NpgsqlDataSource db, ILogger<PostgresSam
         cmd.Parameters.Add(new() { Value = drives is null ? DBNull.Value : drives.Value.Sample.SampledAt.UtcDateTime, NpgsqlDbType = NpgsqlDbType.TimestampTz });
         cmd.Parameters.Add(new() { Value = hb.Stopping ? receivedAt.UtcDateTime : DBNull.Value, NpgsqlDbType = NpgsqlDbType.TimestampTz });
         cmd.Parameters.Add(new() { Value = (object?)hb.LastUser ?? DBNull.Value });
+        cmd.Parameters.Add(new() { Value = (object?)cpu?.Data.CommitMb ?? DBNull.Value, NpgsqlDbType = NpgsqlDbType.Bigint });
+        cmd.Parameters.Add(new() { Value = (object?)cpu?.Data.CommitLimitMb ?? DBNull.Value, NpgsqlDbType = NpgsqlDbType.Bigint });
 
         await cmd.ExecuteNonQueryAsync(ct);
     }

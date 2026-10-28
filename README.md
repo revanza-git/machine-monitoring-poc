@@ -96,7 +96,8 @@ heartbeats.
 
 - `CpuSampler` reads `Processor Information\% Processor Time\_Total` every
   tick and reports the average when the interval closes, so a value is a mean
-  over the window, not a snapshot. `MemorySampler` calls `GlobalMemoryStatusEx`.
+  over the window, not a snapshot. `MemorySampler` calls `GlobalMemoryStatusEx`
+  for physical memory and commit charge.
   `DriveSampler` keeps fixed, ready drives only. `SamplingLoop` is the one
   timer that drives them.
 - `Outbox` writes every sample to `data/outbox.db` (SQLite, WAL,
@@ -173,7 +174,7 @@ agent and server can never disagree on the shape.
 | Machines registered and approved in the admin area | `Machines` list in the server's `appsettings.json` | No admin area in the PoC. |
 | Config per machine or group, edited in the admin area | One fleet-wide `AgentConfig` in appsettings, hot-reloaded | Same protocol (versioned, sent only when behind), simplest possible source. Bump `Version` when values change: agents compare versions, not values. |
 | Nightly folder walk kept current by the NTFS USN journal; allocated size on disk | Nightly full walk only; logical file size | The journal subscription is the one piece that is real engineering effort; the walk shows the data path. Without the journal there is no 15-minute report of changed folders: figures are as of the last walk. |
-| 5-minute and hourly rollups | Hourly continuous aggregate; 5-minute buckets computed on the fly | Shows the pattern once; a week of raw rows (about 10,000 per machine) buckets cheaply. |
+| 5-minute and hourly rollups | Hourly continuous aggregate; 5-minute buckets computed on the fly | Shows the pattern once; a week of raw rows (about 10,000 per machine) buckets cheaply. Commit charge is stored raw and shown in the fleet table, but not rolled up or charted. |
 | Status transitions tracked by the server | Status computed from `last_seen` at read time | Gives the same hysteresis with no state to maintain. |
 | Dedup key `(machine_id, install_id, seq)` | Unique index also includes `time` | TimescaleDB requires the partition column in unique indexes. A resend carries the same `sampled_at`, so nothing changes in practice. |
 | Agent state under ProgramData, MSI install | `data/` beside the content root, `--install` via sc.exe | PoC-sized version of the same idea. |
