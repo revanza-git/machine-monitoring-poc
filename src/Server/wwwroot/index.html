@@ -152,17 +152,37 @@
     loadChart();
   }
 
+  // A machine that was off has no samples, and a line drawn straight across
+  // the hole would claim measurements that never happened. The usual spacing
+  // between points is the sample interval (raw) or the bucket size (5m, 1h);
+  // wherever two neighbours are far further apart than that, a null point goes
+  // between them and spanGaps: false leaves the stretch empty.
+  function withGaps(pts) {
+    if (pts.length < 3) return pts;
+    const deltas = pts.slice(1).map((p, i) => p.x - pts[i].x).sort((a, b) => a - b);
+    const usual = deltas[Math.floor(deltas.length / 2)];
+    const out = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      if (pts[i].x - pts[i - 1].x > usual * 2.5) out.push({ x: (pts[i - 1].x + pts[i].x) / 2, y: null });
+      out.push(pts[i]);
+    }
+    return out;
+  }
+
   async function loadChart() {
     if (selectedId === null) return;
     const to = new Date(), from = new Date(to - rangeHours * 3600_000);
     const res = await fetch(`/api/machines/${selectedId}/metrics?from=${from.toISOString()}&to=${to.toISOString()}`);
     const data = await res.json();
     // x is real time (epoch ms on a linear axis) so gaps and outages keep their
-    // true width instead of collapsing as they would on a category axis.
+    // true width instead of collapsing as they would on a category axis, and
+    // withGaps() keeps them empty instead of bridged. A server outage leaves
+    // no gap at all: the agent queues samples and they arrive later with
+    // their original times. Only an agent that was not running leaves one.
     const fmt = rangeHours > 24 ? { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' } : { hour: '2-digit', minute: '2-digit' };
     const at = (p) => new Date(p.time).getTime();
-    const cpu = data.points.map(p => ({ x: at(p), y: +p.cpu_avg.toFixed(1) }));
-    const mem = data.points.map(p => ({ x: at(p), y: pct(p.mem_used_mb, p.mem_total_mb) }));
+    const cpu = withGaps(data.points.map(p => ({ x: at(p), y: +p.cpu_avg.toFixed(1) })));
+    const mem = withGaps(data.points.map(p => ({ x: at(p), y: pct(p.mem_used_mb, p.mem_total_mb) })));
     document.getElementById('chart-sub').textContent =
       `${data.points.length} points · resolution ${data.resolution}${data.resolution === 'raw' ? '' : ' (average per bucket)'}`;
 

@@ -160,8 +160,11 @@ heartbeats.
   7 d) or hourly resolution from the range, as the design says; the hourly
   path reads the continuous aggregate.
 - `wwwroot/index.html`: fleet table, one CPU/memory chart on a single
-  0 to 100 % axis with a real-time x-axis, and a projects table. Refreshes
-  every 10 s. Chart.js, no framework, no build step.
+  0 to 100 % axis with a real-time x-axis, and a projects table. Where a
+  machine has no samples (the agent was not running) the line is left empty
+  rather than bridged; a server outage leaves no hole because the backlog
+  arrives with its original times. Refreshes every 10 s. Chart.js, no
+  framework, no build step.
 
 **Shared** (`src/Shared`): the wire contract as records, snake_case JSON, so
 agent and server can never disagree on the shape.
@@ -262,7 +265,8 @@ fixes sit between them as their own commits.
 - [x] 18. Review follow-up (issue #1), one commit per item: active and last
   user from WTS and the registry, portal escaping, per-iteration catches,
   idle walk on a schedule, chart thresholds, ingest guards before the body
-  and a shared batch cap, commit charge, README. First test projects.
+  and a shared batch cap, commit charge, README, and from the demo session,
+  empty chart stretches where an agent was not running. First test projects.
 
 ## Troubleshooting
 
