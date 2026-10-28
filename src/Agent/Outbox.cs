@@ -148,7 +148,13 @@ public sealed class Outbox : IDisposable
         }
     }
 
-    /// <summary>Called once per process start. A climbing count in the heartbeat is the restart-loop signal.</summary>
+    /// <summary>
+    /// Called once per process start, so this is a lifetime count of starts:
+    /// reboots and deliberate service restarts raise it too. The restart-loop
+    /// signal is a count that climbs between consecutive heartbeats, which
+    /// the PoC leaves to whoever reads the portal; production would reset the
+    /// counter after an hour of steady running and flag the loop server-side.
+    /// </summary>
     public int IncrementRestartCount()
     {
         var count = int.Parse(GetMeta("restart_count") ?? "0", CultureInfo.InvariantCulture) + 1;

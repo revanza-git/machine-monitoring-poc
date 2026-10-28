@@ -136,9 +136,12 @@ heartbeats.
 **Server** (`src/Server`, one ASP.NET Core app)
 
 - `POST /v1/samples`: identity from the `X-Api-Key` header, never the body.
-  `IngestThrottle` bounds batches in flight and answers 429 with
-  `Retry-After` beyond that. `BatchValidator` checks shape. The reply carries
-  config only when the agent's version is behind.
+  `IngestThrottle` and `ApiKeyAuth` run as middleware on that path, before
+  the body is read: a saturated server answers 429 with `Retry-After` and an
+  unknown key gets 401 without parsing a byte. `BatchValidator` checks shape;
+  the 500-row cap is one constant in `Shared` that the agent clamps its own
+  setting to. The reply carries config only when the agent's version is
+  behind.
 - `PostgresSampleStore`: one transaction per batch upserts the machine,
   inserts history with `ON CONFLICT DO NOTHING` (one `NpgsqlBatch`, one round
   trip) and upserts `machine_latest`. A resend stores nothing new and acks the
@@ -226,7 +229,7 @@ added surface without changing how the flow works.
 | `src/Agent` | Worker: samplers, SQLite outbox, uploader, config cache, project walker, service installer |
 | `src/Server` | ASP.NET Core: `POST /v1/samples`, `GET /api/*`, schema, static portal |
 | `tests/Agent.Tests` | xunit: user sampler, last-error slot, idle thread, walk schedule, heartbeat JSON shape |
-| `tests/Server.Tests` | xunit: chart resolution thresholds |
+| `tests/Server.Tests` | xunit: chart resolution thresholds, throttle, API key check, batch validator |
 | `docker-compose.yml` | TimescaleDB (PostgreSQL 17) for local use |
 | `scripts/` | `run-server.ps1`, `run-agent.ps1`, `outage-demo.ps1` |
 | `CLAUDE.md` | Constraints and working style for AI-assisted sessions |

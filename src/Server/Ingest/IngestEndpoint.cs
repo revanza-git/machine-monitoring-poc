@@ -15,10 +15,10 @@ public static class IngestEndpoint
 {
     public static IEndpointRouteBuilder MapIngest(this IEndpointRouteBuilder app)
     {
-        // Throttle first: shedding load must be the cheapest thing the server does.
-        app.MapPost(Routes.Samples, HandleAsync)
-            .AddEndpointFilter(app.ServiceProvider.GetRequiredService<IngestThrottle>())
-            .AddEndpointFilter<ApiKeyFilter>();
+        // The throttle and the key check run as middleware on this path (see
+        // Program.cs), before the body is read. By the time the handler binds
+        // the batch, the request has a slot and a known machine.
+        app.MapPost(Routes.Samples, HandleAsync);
         return app;
     }
 

@@ -29,6 +29,7 @@ builder.Services.Configure<IngestOptions>(builder.Configuration.GetSection(Inges
 builder.Services.Configure<StatusOptions>(builder.Configuration.GetSection(StatusOptions.Section));
 builder.Services.Configure<AgentConfigOptions>(builder.Configuration.GetSection(AgentConfigOptions.Section));
 builder.Services.AddSingleton<IngestThrottle>();   // one semaphore for the whole app
+builder.Services.AddSingleton<ApiKeyAuth>();
 builder.Services.AddSingleton<MachineRegistry>();
 builder.Services.AddSingleton<ISampleStore, PostgresSampleStore>();
 
@@ -40,6 +41,14 @@ await SchemaInitializer.ApplyAsync(
 // The portal: one static page in wwwroot that calls the query API.
 app.UseDefaultFiles();
 app.UseStaticFiles();
+
+// Ingest guards run as middleware on that one path, before the body is read:
+// a saturated server or an unknown key is answered without parsing a byte.
+app.UseWhen(ctx => ctx.Request.Path == Routes.Samples, ingest =>
+{
+    ingest.UseMiddleware<IngestThrottle>();
+    ingest.UseMiddleware<ApiKeyAuth>();
+});
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapIngest();

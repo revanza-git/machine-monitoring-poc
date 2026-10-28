@@ -11,4 +11,12 @@ public sealed record SampleBatch(
     Guid InstallId,
     string AgentVersion,
     IReadOnlyList<Sample> Samples,
-    Heartbeat Heartbeat);
+    Heartbeat Heartbeat)
+{
+    /// <summary>
+    /// The design's batch cap. One constant for both sides: the server rejects
+    /// anything larger, and the agent clamps its own setting to it, so a
+    /// misconfigured agent can never retry an oversized batch forever.
+    /// </summary>
+    public const int MaxRows = 500;
+}

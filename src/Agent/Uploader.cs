@@ -35,6 +35,7 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, Conf
         TimeSpan.FromSeconds(options.Value.BackoffMaxS));
 
     private readonly int _restartCount = outbox.IncrementRestartCount();
+    private readonly int _maxRows = Math.Min(options.Value.MaxBatchRows, SampleBatch.MaxRows);   // the server rejects more
 
     private static HttpClient CreateClient(AgentOptions o)
     {
@@ -54,9 +55,11 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, Conf
     {
         var o = options.Value;
         logger.LogInformation("Uploading to {Server} every {Interval}s, up to {Max} rows per batch, outbox cap {Days} days, restart #{Restarts}",
-            o.ServerUrl, o.UploadIntervalS, o.MaxBatchRows, o.OutboxMaxAgeDays, _restartCount);
+            o.ServerUrl, o.UploadIntervalS, _maxRows, o.OutboxMaxAgeDays, _restartCount);
         if (o.TrustAnyServerCertificate)
             logger.LogWarning("TrustAnyServerCertificate is on: server certificate is NOT validated (development only)");
+        if (o.MaxBatchRows > SampleBatch.MaxRows)
+            logger.LogWarning("MaxBatchRows {Configured} is above the server's cap of {Cap}; using the cap", o.MaxBatchRows, SampleBatch.MaxRows);
 
         while (!ct.IsCancellationRequested)
         {
@@ -100,7 +103,7 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, Conf
     private async Task<Outcome> TrySendBatchAsync(bool stopping, CancellationToken ct)
     {
         var o = options.Value;
-        List<Sample> rows = stopping ? [] : outbox.PeekBatch(o.MaxBatchRows);
+        List<Sample> rows = stopping ? [] : outbox.PeekBatch(_maxRows);
         var user = ReadUser();
         var batch = new SampleBatch(
             MachineId: o.MachineId,
@@ -142,7 +145,7 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, Conf
             if (ack.Config is { } newConfig)
                 config.Apply(newConfig);
 
-            return rows.Count == o.MaxBatchRows ? new Outcome.SentFull() : new Outcome.Sent();
+            return rows.Count == _maxRows ? new Outcome.SentFull() : new Outcome.Sent();
         }
         catch (OperationCanceledException) when (stopping)
         {

@@ -47,7 +47,7 @@ public sealed class AgentOptions
     /// <summary>How often the outbox is drained. Also the heartbeat cadence.</summary>
     public int UploadIntervalS { get; set; } = 60;
 
-    /// <summary>Rows per POST. The design caps batches at 500.</summary>
+    /// <summary>Rows per POST, clamped to the server's cap (SampleBatch.MaxRows, 500 in the design).</summary>
     public int MaxBatchRows { get; set; } = 500;
 
     /// <summary>First retry delay after a failed upload. Doubles per failure up to BackoffMaxS, with jitter.</summary>

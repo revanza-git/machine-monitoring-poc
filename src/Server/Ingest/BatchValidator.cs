@@ -5,14 +5,12 @@ namespace Server.Ingest;
 /// <summary>Shape checks only. Returns a reason string, or null when the batch is acceptable.</summary>
 public static class BatchValidator
 {
-    public const int MaxRows = 500;
-
     public static string? Validate(SampleBatch batch)
     {
         if (string.IsNullOrWhiteSpace(batch.MachineId)) return "machine_id is required";
         if (batch.InstallId == Guid.Empty) return "install_id is required";
         if (batch.Samples is null || batch.Heartbeat is null) return "samples and heartbeat are required";
-        if (batch.Samples.Count > MaxRows) return $"at most {MaxRows} samples per batch";
+        if (batch.Samples.Count > SampleBatch.MaxRows) return $"at most {SampleBatch.MaxRows} samples per batch";
 
         long previous = 0;
         foreach (var s in batch.Samples)
