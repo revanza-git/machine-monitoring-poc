@@ -273,7 +273,9 @@ fixes sit between them as their own commits.
   idle walk on a schedule, chart thresholds, ingest guards before the body
   and a shared batch cap, commit charge, README, and from the demo session,
   empty chart stretches where an agent was not running. First test projects.
-  Then the restart-loop flag, the one item first left in the table.
+  Then the restart-loop flag, the one item first left in the table. The
+  agent reports 0.2.0 from here on, since the heartbeat and sample shapes
+  grew; `v0.1.0` stays on the commit that was reviewed.
 
 ## Troubleshooting
 
