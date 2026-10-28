@@ -49,7 +49,7 @@ shows this machine as online with its CPU, memory, drives and active user, and
 the chart fills in. Both scripts run with the Development profile, which uses
 short intervals (2 s CPU tick, 10 s cpu_mem, 30 s drives, 2 min project walk,
 10 s upload) so a demo shows data quickly. `appsettings.json` in each project
-holds the design values (60 s, 5 min, daily walk).
+holds the design values (60 s, 5 min, nightly walk at 02:00).
 
 The projects table stays empty until the agent is given a folder to size:
 create the git-ignored `src/Server/appsettings.Local.json` with
@@ -126,7 +126,10 @@ heartbeats.
   sign in. The process identity is never used: under the Service Control
   Manager it is LocalSystem, which is not who is at the keyboard.
 - `ProjectWalker` sizes each first-level folder under the configured project
-  root on a lowest-priority thread, on its own schedule.
+  root, once when the root is set and then nightly at `ProjectWalkHour`
+  (02:00 local). `IdleThread` runs the walk on its own thread at lowest CPU
+  priority and in Windows background mode, which also lowers I/O priority,
+  so a build on the workstation always wins.
 - `ServiceInstaller`: `--install` and `--uninstall` register the same binary
   as a Windows Service with auto start and restart-twice-then-stop recovery.
 
@@ -165,7 +168,7 @@ agent and server can never disagree on the shape.
 | Mutual TLS with AD CS machine certificates | Per-machine API key in `X-Api-Key` over the dev HTTPS certificate | mTLS needs a domain CA. Identity is still taken from the credential, never the body. |
 | Machines registered and approved in the admin area | `Machines` list in the server's `appsettings.json` | No admin area in the PoC. |
 | Config per machine or group, edited in the admin area | One fleet-wide `AgentConfig` in appsettings, hot-reloaded | Same protocol (versioned, sent only when behind), simplest possible source. Bump `Version` when values change: agents compare versions, not values. |
-| Nightly folder walk kept current by the NTFS USN journal; allocated size on disk | Timed full walk; logical file size | The journal subscription is the one piece that is real engineering effort; the walk shows the data path. |
+| Nightly folder walk kept current by the NTFS USN journal; allocated size on disk | Nightly full walk only; logical file size | The journal subscription is the one piece that is real engineering effort; the walk shows the data path. Without the journal there is no 15-minute report of changed folders: figures are as of the last walk. |
 | 5-minute and hourly rollups | Hourly continuous aggregate; 5-minute buckets computed on the fly | Shows the pattern once; two days of raw rows bucket cheaply. |
 | Status transitions tracked by the server | Status computed from `last_seen` at read time | Gives the same hysteresis with no state to maintain. |
 | Dedup key `(machine_id, install_id, seq)` | Unique index also includes `time` | TimescaleDB requires the partition column in unique indexes. A resend carries the same `sampled_at`, so nothing changes in practice. |

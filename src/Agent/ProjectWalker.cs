@@ -9,8 +9,9 @@ namespace Agent;
 /// per-minute sampling loop because a walk can take a while. Nothing happens
 /// until the server's config names a root. A root change triggers an
 /// immediate walk rather than waiting for the next interval, as the design
-/// says. The walk runs on a lowest-priority thread so an engineer's build
-/// always wins the CPU.
+/// says; after that the walk is nightly at <see cref="AgentOptions.ProjectWalkHour"/>
+/// local time. It runs on an <see cref="IdleThread"/>: lowest CPU priority
+/// and background I/O priority, so an engineer's build always wins.
 /// </summary>
 public sealed class ProjectWalker(IOptions<AgentOptions> options, ConfigCache config, Outbox outbox, LastError lastError, ILogger<ProjectWalker> logger)
     : BackgroundService
@@ -42,7 +43,7 @@ public sealed class ProjectWalker(IOptions<AgentOptions> options, ConfigCache co
                     continue;
 
                 lastRoot = root;
-                nextDue = now.AddSeconds(options.Value.ProjectIntervalS);
+                nextDue = NextDue(now, options.Value.ProjectIntervalS, options.Value.ProjectWalkHour, TimeZoneInfo.Local);
 
                 if (!Directory.Exists(root))
                 {
@@ -50,15 +51,11 @@ public sealed class ProjectWalker(IOptions<AgentOptions> options, ConfigCache co
                     continue;
                 }
 
-                var data = await Task.Run(() =>
-                {
-                    Thread.CurrentThread.Priority = ThreadPriority.Lowest;
-                    return ProjectSampler.Walk(root);
-                }, ct);
+                var data = await IdleThread.Run(() => ProjectSampler.Walk(root), "project walk");
 
                 var seq = outbox.Append(SampleKinds.Project, data.AsOf, data);
-                logger.LogInformation("Walked {Root}: {Count} projects, {Bytes:N0} bytes in {Ms} ms, queued as seq {Seq}",
-                    root, data.Folders.Count, data.Folders.Sum(f => f.Bytes), data.WalkMs, seq);
+                logger.LogInformation("Walked {Root}: {Count} projects, {Bytes:N0} bytes in {Ms} ms, queued as seq {Seq}; next walk {Next:yyyy-MM-dd HH:mm}",
+                    root, data.Folders.Count, data.Folders.Sum(f => f.Bytes), data.WalkMs, seq, nextDue.ToLocalTime());
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
@@ -67,5 +64,23 @@ public sealed class ProjectWalker(IOptions<AgentOptions> options, ConfigCache co
             }
         }
         while (await timer.WaitForNextTickAsync(ct));
+    }
+
+    /// <summary>
+    /// An interval of a day or more means "nightly": the next occurrence of
+    /// <paramref name="walkHour"/> in <paramref name="zone"/>, so the walk lands
+    /// in off-hours instead of 24 hours after whenever the agent happened to
+    /// start. Shorter intervals (the Development profile) simply repeat.
+    /// </summary>
+    public static DateTimeOffset NextDue(DateTimeOffset now, int intervalS, int walkHour, TimeZoneInfo zone)
+    {
+        if (intervalS < 86400)
+            return now.AddSeconds(intervalS);
+
+        var local = TimeZoneInfo.ConvertTime(now, zone);
+        var candidate = local.Date.AddHours(walkHour);
+        if (candidate <= local.DateTime)
+            candidate = candidate.AddDays(1);
+        return new DateTimeOffset(candidate, zone.GetUtcOffset(candidate));
     }
 }

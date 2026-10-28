@@ -38,6 +38,12 @@ public sealed class AgentOptions
     /// <summary>How often the project root (if the server configured one) is walked. Nightly in the design.</summary>
     public int ProjectIntervalS { get; set; } = 86400;
 
+    /// <summary>
+    /// Local hour of the walk when ProjectIntervalS is a day or more, so it
+    /// lands in off-hours. Shorter intervals (Development profile) ignore it.
+    /// </summary>
+    public int ProjectWalkHour { get; set; } = 2;
+
     /// <summary>How often the outbox is drained. Also the heartbeat cadence.</summary>
     public int UploadIntervalS { get; set; } = 60;
 
