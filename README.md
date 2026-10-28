@@ -180,6 +180,8 @@ agent and server can never disagree on the shape.
 | Agent state under ProgramData, MSI install | `data/` beside the content root, `--install` via sc.exe | PoC-sized version of the same idea. |
 | Agent validates the server certificate | Development profile sets `TrustAnyServerCertificate` | So the reviewer path works without trusting the dev certificate first. Off in `appsettings.json`. |
 | Clock drift flagged beyond 5 min | `received_at` stored beside `sampled_at`, not yet compared | The data is there; the check is a one-line query. |
+| Restart-loop flag on the machine | `restart_count` is a lifetime count of starts, shown as-is | Reboots raise it too. The loop signal is a count that climbs between consecutive heartbeats; production would reset it after an hour of steady running and flag the loop server-side. |
+| Deck: the agent "wakes once a minute" | Document and code: the CPU counter is read every few seconds and the average reported per minute | The document is the more precise of the two; a per-minute snapshot would miss short spikes. |
 
 Machine-specific overrides (such as a real `ProjectRoot`) go in the
 git-ignored `src/Server/appsettings.Local.json`, so local paths never reach
@@ -191,7 +193,7 @@ Admin area, groups, users and roles, Entra ID single sign-on, React, MSI
 rollout through Group Policy or Intune, agent self-update, the USN journal
 and `FileSystemWatcher` fallback, inventory (WMI) and the Machines page, the
 5-minute rollup, authentication on the query API and portal, and automated
-tests beyond `tests/Agent.Tests` (user sampler and heartbeat wire shape).
+tests beyond the unit tests in `tests/` (see the layout table).
 The brief asked for the main end-to-end flow, and each of these would have
 added surface without changing how the flow works.
 
@@ -205,10 +207,10 @@ added surface without changing how the flow works.
   hand-bumped version number.
 - **Schema management**: a real migration tool (DbUp or Flyway) instead of
   one idempotent script, with the TimescaleDB policies as migrations.
-- **Tests**: unit tests for `Backoff`, `BatchValidator`, `MachineStatus` and
-  `Outbox`; integration tests for ingest against a Testcontainers
-  TimescaleDB, including the resend and poison-row cases; a contract test on
-  the shared DTOs.
+- **Tests**: beyond the unit tests in `tests/`, cover `Backoff`,
+  `MachineStatus` and `Outbox`; integration tests for ingest against a
+  Testcontainers TimescaleDB, including the resend and poison-row cases; a
+  contract test on every shared DTO.
 - **Observability**: structured logs through OpenTelemetry, metrics for
   batches per second, rejected batches, 429s, queue depth per machine and
   ingest latency; alerts on server disk at 70 % and 85 %.
@@ -257,7 +259,10 @@ fixes sit between them as their own commits.
 - [x] 15. Stretch: Windows Service install flag, project root walk
 - [x] 16. Outage demo script
 - [x] 17. Final README
-- [x] 18. Review follow-up (issue #1): active and last logged-on user from WTS and the registry, first tests
+- [x] 18. Review follow-up (issue #1), one commit per item: active and last
+  user from WTS and the registry, portal escaping, per-iteration catches,
+  idle walk on a schedule, chart thresholds, ingest guards before the body
+  and a shared batch cap, commit charge, README. First test projects.
 
 ## Troubleshooting
 
