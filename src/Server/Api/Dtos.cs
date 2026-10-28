@@ -22,6 +22,8 @@ public sealed record MachineSummary(
     string? AgentVersion,
     long? OutboxDepth,
     int? RestartCount,
+    int? RestartsLastHour,
+    bool RestartLoop,
     string? LastError,
     int? ConfigVersion);
 

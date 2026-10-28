@@ -67,7 +67,7 @@ public static class QueryApi
                    l.last_seen, l.sampled_at, l.cpu_pct, l.mem_used_mb, l.mem_total_mb,
                    l.drives::text, l.drives_at, l.active_user, l.agent_version,
                    l.outbox_depth, l.restart_count, l.last_error, l.config_version, l.stopped_at, l.last_user,
-                   l.commit_mb, l.commit_limit_mb
+                   l.commit_mb, l.commit_limit_mb, l.restarts_last_hour
             FROM machines m
             LEFT JOIN machine_latest l USING (machine_id)
             ORDER BY m.name
@@ -80,6 +80,7 @@ public static class QueryApi
         {
             var lastSeen = r.GetNullableTime(3);
             var stoppedAt = r.GetNullableTime(16);
+            var recentStarts = r.GetNullable<int>(20);
             rows.Add(new MachineSummary(
                 MachineId: r.GetInt64(0),
                 Name: r.GetString(1),
@@ -99,6 +100,8 @@ public static class QueryApi
                 AgentVersion: r.GetNullableString(11),
                 OutboxDepth: r.GetNullable<long>(12),
                 RestartCount: r.GetNullable<int>(13),
+                RestartsLastHour: recentStarts,
+                RestartLoop: MachineStatus.IsRestartLoop(recentStarts, status.Value),
                 LastError: r.GetNullableString(14),
                 ConfigVersion: r.GetNullable<int>(15)));
         }

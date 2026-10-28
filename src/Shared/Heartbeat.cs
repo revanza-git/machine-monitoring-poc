@@ -9,13 +9,16 @@ namespace Shared;
 /// is the version the agent is currently running; the server sends config
 /// back only when it differs. <see cref="Stopping"/> is true on the final
 /// heartbeat of a clean shutdown, which is how the portal tells "off" from
-/// "unresponsive".
+/// "unresponsive". <see cref="RestartCount"/> is a lifetime count of agent
+/// starts; <see cref="RestartsLastHour"/> is the number inside the last hour,
+/// which is what tells a crash-restart loop from an ordinary reboot.
 /// </summary>
 public sealed record Heartbeat(
     string? ActiveUser,
     string? LastUser,
     long OutboxDepth,
     int RestartCount,
+    int RestartsLastHour,
     string? LastError,
     int ConfigVersion,
     bool Stopping = false);

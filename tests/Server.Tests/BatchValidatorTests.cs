@@ -13,7 +13,7 @@ public class BatchValidatorTests
         InstallId: Guid.NewGuid(),
         AgentVersion: "0.1.0",
         Samples: seqs.Select(s => new Sample(s, SampleKinds.CpuMem, DateTimeOffset.UtcNow, Empty)).ToList(),
-        Heartbeat: new Heartbeat(null, null, 0, 1, null, 1));
+        Heartbeat: new Heartbeat(null, null, 0, 1, 1, null, 1));
 
     [Fact]
     public void Empty_heartbeat_only_batch_is_fine()

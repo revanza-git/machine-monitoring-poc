@@ -46,6 +46,8 @@ public sealed class Outbox : IDisposable
                 kind       TEXT NOT NULL,
                 sampled_at TEXT NOT NULL,
                 data       TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS starts (
+                started_at TEXT NOT NULL);
             """);
         InstallId = LoadOrCreateInstallId();
     }
@@ -149,17 +151,47 @@ public sealed class Outbox : IDisposable
     }
 
     /// <summary>
-    /// Called once per process start, so this is a lifetime count of starts:
-    /// reboots and deliberate service restarts raise it too. The restart-loop
-    /// signal is a count that climbs between consecutive heartbeats, which
-    /// the PoC leaves to whoever reads the portal; production would reset the
-    /// counter after an hour of steady running and flag the loop server-side.
+    /// Starts inside this window count towards the restart-loop signal. An
+    /// hour of steady running brings the count back to one on its own, which
+    /// is the design's "reset after an hour" without a timer to maintain.
     /// </summary>
-    public int IncrementRestartCount()
+    public static readonly TimeSpan RestartWindow = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// Called once per process start. Returns the lifetime count of starts,
+    /// which reboots and deliberate service restarts raise too, so on its own
+    /// it says nothing about health; it is kept because the design lists it.
+    /// The start is also stamped in the starts table for <see cref="RecentStarts"/>.
+    /// </summary>
+    public int RecordStart(DateTimeOffset now)
     {
         var count = int.Parse(GetMeta("restart_count") ?? "0", CultureInfo.InvariantCulture) + 1;
         SetMeta("restart_count", count.ToString(CultureInfo.InvariantCulture));
+        lock (_gate)
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.CommandText = "INSERT INTO starts (started_at) VALUES ($at)";
+            cmd.Parameters.AddWithValue("$at", now.UtcDateTime.ToString("O", CultureInfo.InvariantCulture));
+            cmd.ExecuteNonQuery();
+        }
         return count;
+    }
+
+    /// <summary>
+    /// Starts within the last <see cref="RestartWindow"/>, this one included.
+    /// Reported in every heartbeat; the server flags a restart loop when it
+    /// reaches the threshold. Older stamps are dropped here so the table never
+    /// holds more than an hour of history.
+    /// </summary>
+    public int RecentStarts(DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            using var cmd = _db.CreateCommand();
+            cmd.CommandText = "DELETE FROM starts WHERE started_at < $cutoff; SELECT COUNT(*) FROM starts";
+            cmd.Parameters.AddWithValue("$cutoff", (now - RestartWindow).UtcDateTime.ToString("O", CultureInfo.InvariantCulture));
+            return (int)(long)cmd.ExecuteScalar()!;
+        }
     }
 
     private Guid LoadOrCreateInstallId()

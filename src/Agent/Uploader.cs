@@ -34,7 +34,7 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, Conf
         TimeSpan.FromSeconds(options.Value.BackoffInitialS),
         TimeSpan.FromSeconds(options.Value.BackoffMaxS));
 
-    private readonly int _restartCount = outbox.IncrementRestartCount();
+    private readonly int _restartCount = outbox.RecordStart(DateTimeOffset.UtcNow);
     private readonly int _maxRows = Math.Min(options.Value.MaxBatchRows, SampleBatch.MaxRows);   // the server rejects more
 
     private static HttpClient CreateClient(AgentOptions o)
@@ -115,6 +115,7 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, Conf
                 LastUser: user.LastUser,
                 OutboxDepth: outbox.Depth(),
                 RestartCount: _restartCount,
+                RestartsLastHour: outbox.RecentStarts(DateTimeOffset.UtcNow),
                 LastError: lastError.Message,
                 ConfigVersion: config.Current.Version,
                 Stopping: stopping));

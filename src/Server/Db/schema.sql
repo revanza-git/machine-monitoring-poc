@@ -43,6 +43,9 @@ ALTER TABLE machine_latest ADD COLUMN IF NOT EXISTS last_user text;
 -- Added with commit charge: the design's third memory figure.
 ALTER TABLE machine_latest ADD COLUMN IF NOT EXISTS commit_mb bigint;
 ALTER TABLE machine_latest ADD COLUMN IF NOT EXISTS commit_limit_mb bigint;
+-- Added with the restart-loop flag: agent starts inside the last hour, as
+-- counted by the agent. restart_count stays the lifetime figure.
+ALTER TABLE machine_latest ADD COLUMN IF NOT EXISTS restarts_last_hour int;
 
 -- History. Hypertables partitioned on time (sampled_at from the agent).
 -- received_at is the server clock, kept beside it for clock-drift checks.

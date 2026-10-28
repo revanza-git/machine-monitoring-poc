@@ -46,6 +46,7 @@
   .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
   .status.online::before { background: var(--good); }
   .status.unresponsive::before { background: var(--critical); }
+  .flag { color: var(--critical); font-size: 12px; margin-left: 6px; }
   .bar { display: inline-block; width: 60px; height: 6px; background: var(--grid); border-radius: 3px; vertical-align: middle; margin-right: 6px; }
   .bar > i { display: block; height: 100%; border-radius: 3px; background: var(--series-1); }
   button { font: inherit; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--ink); cursor: pointer; }
@@ -128,7 +129,7 @@
     tbody.innerHTML = rows.map(m => `
       <tr data-id="${m.machine_id}" class="${m.machine_id === selectedId ? 'selected' : ''}">
         <td><strong>${esc(m.name)}</strong> <span class="muted">${m.hostname && m.hostname !== m.name ? esc(m.hostname) : ''}</span></td>
-        <td><span class="status ${m.status}">${m.status}</span></td>
+        <td><span class="status ${m.status}">${m.status}</span>${m.restart_loop ? `<span class="flag" title="${m.restarts_last_hour} agent starts in the last hour">restart loop</span>` : ''}</td>
         <td>${ago(m.last_seen)}</td>
         <td class="num">${m.cpu_pct == null ? '—' : m.cpu_pct.toFixed(1) + '%'}</td>
         <td>${m.mem_total_mb ? bar(pct(m.mem_used_mb, m.mem_total_mb)) + ` <span class="muted" title="${m.commit_mb != null ? `commit charge ${gb(m.commit_mb)} of ${gb(m.commit_limit_mb)} GB` : ''}">${gb(m.mem_used_mb)} / ${gb(m.mem_total_mb)} GB</span>` : '—'}</td>

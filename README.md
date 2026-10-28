@@ -115,8 +115,15 @@ heartbeats.
   logs an error if it ever drops rows.
 - `ConfigCache` persists the last server config in the outbox's meta table
   and reports its version in every heartbeat. Intervals change without a
-  restart. The heartbeat also carries active user, outbox depth, restart
-  count, the last error from any loop and a `stopping` flag on clean shutdown.
+  restart. The heartbeat also carries active user, outbox depth, the
+  lifetime restart count, the starts inside the last hour, the last error
+  from any loop and a `stopping` flag on clean shutdown.
+- Restart-loop flag: the outbox stamps every process start and reports how
+  many fall inside the last hour, so an hour of steady running clears it
+  without a timer. The server flags three or more (`Status:RestartLoopStarts`),
+  matching the service's restart-twice-then-stop recovery, and the portal
+  shows "restart loop" beside the status. The lifetime count alone cannot
+  tell a crash loop from a year of reboots.
 - Every loop catches per iteration. A bad CPU tick, a failed walk, a reply
   that is not JSON or a SQLite error under the outbox is logged, shown as
   `last_error` in the portal and retried on the next tick or backoff. Nothing
@@ -183,7 +190,6 @@ agent and server can never disagree on the shape.
 | Agent state under ProgramData, MSI install | `data/` beside the content root, `--install` via sc.exe | PoC-sized version of the same idea. |
 | Agent validates the server certificate | Development profile sets `TrustAnyServerCertificate` | So the reviewer path works without trusting the dev certificate first. Off in `appsettings.json`. |
 | Clock drift flagged beyond 5 min | `received_at` stored beside `sampled_at`, not yet compared | The data is there; the check is a one-line query. |
-| Restart-loop flag on the machine | `restart_count` is a lifetime count of starts, shown as-is | Reboots raise it too. The loop signal is a count that climbs between consecutive heartbeats; production would reset it after an hour of steady running and flag the loop server-side. |
 | Deck: the agent "wakes once a minute" | Document and code: the CPU counter is read every few seconds and the average reported per minute | The document is the more precise of the two; a per-minute snapshot would miss short spikes. |
 
 Machine-specific overrides (such as a real `ProjectRoot`) go in the
@@ -267,6 +273,7 @@ fixes sit between them as their own commits.
   idle walk on a schedule, chart thresholds, ingest guards before the body
   and a shared batch cap, commit charge, README, and from the demo session,
   empty chart stretches where an agent was not running. First test projects.
+  Then the restart-loop flag, the one item first left in the table.
 
 ## Troubleshooting
 

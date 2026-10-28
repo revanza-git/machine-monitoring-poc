@@ -7,7 +7,7 @@ namespace Agent.Tests;
 public class HeartbeatWireTests
 {
     private static Heartbeat Beat(string? active, string? last) =>
-        new(ActiveUser: active, LastUser: last, OutboxDepth: 0, RestartCount: 1, LastError: null, ConfigVersion: 1);
+        new(ActiveUser: active, LastUser: last, OutboxDepth: 0, RestartCount: 1, RestartsLastHour: 1, LastError: null, ConfigVersion: 1);
 
     [Fact]
     public void Both_user_fields_are_snake_case()

@@ -9,6 +9,13 @@ public sealed class StatusOptions
 
     /// <summary>Silence for this many intervals marks a machine unresponsive.</summary>
     public int MissedHeartbeatsBeforeUnresponsive { get; set; } = 3;
+
+    /// <summary>
+    /// This many agent starts inside an hour flag a restart loop. The service
+    /// is installed with "restart twice, then stop", so a third start within
+    /// the hour means the recovery actions are used up and the crash persists.
+    /// </summary>
+    public int RestartLoopStarts { get; set; } = 3;
 }
 
 /// <summary>
@@ -33,4 +40,12 @@ public static class MachineStatus
         var limit = TimeSpan.FromSeconds(o.HeartbeatIntervalS * o.MissedHeartbeatsBeforeUnresponsive);
         return silence > limit ? Unresponsive : Online;
     }
+
+    /// <summary>
+    /// The restart-loop flag, from the agent's count of starts in the last
+    /// hour. Orthogonal to status: a looping agent is usually "online",
+    /// because each short life manages a heartbeat before it dies.
+    /// </summary>
+    public static bool IsRestartLoop(int? restartsLastHour, StatusOptions o) =>
+        restartsLastHour is { } n && n >= o.RestartLoopStarts;
 }
