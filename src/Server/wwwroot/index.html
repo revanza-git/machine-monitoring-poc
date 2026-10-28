@@ -116,6 +116,10 @@
     return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : `${(s / 3600).toFixed(1)} h ago`;
   };
   const bar = (p) => `<span class="bar" title="${p}%"><i style="width:${p}%"></i></span>${p}%`;
+  // Every string that an agent chose (hostname, user, drive and folder names)
+  // goes through here before it lands in innerHTML: a folder called
+  // <img src=x onerror=...> must render as text, not run.
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   async function loadFleet() {
     const res = await fetch('/api/machines');
@@ -123,14 +127,14 @@
     const tbody = document.querySelector('#fleet tbody');
     tbody.innerHTML = rows.map(m => `
       <tr data-id="${m.machine_id}" class="${m.machine_id === selectedId ? 'selected' : ''}">
-        <td><strong>${m.name}</strong> <span class="muted">${m.hostname && m.hostname !== m.name ? m.hostname : ''}</span></td>
+        <td><strong>${esc(m.name)}</strong> <span class="muted">${m.hostname && m.hostname !== m.name ? esc(m.hostname) : ''}</span></td>
         <td><span class="status ${m.status}">${m.status}</span></td>
         <td>${ago(m.last_seen)}</td>
         <td class="num">${m.cpu_pct == null ? '—' : m.cpu_pct.toFixed(1) + '%'}</td>
         <td>${m.mem_total_mb ? bar(pct(m.mem_used_mb, m.mem_total_mb)) + ` <span class="muted">${gb(m.mem_used_mb)} / ${gb(m.mem_total_mb)} GB</span>` : '—'}</td>
-        <td class="hide-sm">${(m.drives || []).map(d => `${d.name} ${bar(pct(d.total_bytes - d.free_bytes, d.total_bytes))}`).join(' &nbsp; ')}</td>
-        <td class="hide-sm">${m.active_user ?? (m.last_user ? `<span class="muted" title="Nobody signed in; last user to sign in">${m.last_user} (last)</span>` : '—')}</td>
-        <td class="hide-sm">${m.agent_version ?? '—'}</td>
+        <td class="hide-sm">${(m.drives || []).map(d => `${esc(d.name)} ${bar(pct(d.total_bytes - d.free_bytes, d.total_bytes))}`).join(' &nbsp; ')}</td>
+        <td class="hide-sm">${m.active_user ? esc(m.active_user) : (m.last_user ? `<span class="muted" title="Nobody signed in; last user to sign in">${esc(m.last_user)} (last)</span>` : '—')}</td>
+        <td class="hide-sm">${esc(m.agent_version ?? '—')}</td>
         <td class="num hide-sm">${m.outbox_depth ?? '—'}</td>
       </tr>`).join('');
     document.getElementById('fleet-sub').textContent =
@@ -217,9 +221,9 @@
     if (!rows.length) return;
     document.querySelector('#projects tbody').innerHTML = rows.map(p => `
       <tr>
-        <td><strong>${p.name}</strong>${p.sizes_differ ? ' <span class="muted" title="copies differ in size">⚠ copies differ</span>' : ''}</td>
+        <td><strong>${esc(p.name)}</strong>${p.sizes_differ ? ' <span class="muted" title="copies differ in size">⚠ copies differ</span>' : ''}</td>
         <td class="num">${size(p.total_bytes)}</td>
-        <td>${p.copies.map(c => `${c.machine} · ${size(c.bytes)} <span class="muted">(${c.files.toLocaleString()} files, as of ${ago(c.as_of)})</span>`).join('<br>')}</td>
+        <td>${p.copies.map(c => `${esc(c.machine)} · ${size(c.bytes)} <span class="muted">(${c.files.toLocaleString()} files, as of ${ago(c.as_of)})</span>`).join('<br>')}</td>
       </tr>`).join('');
     document.getElementById('projects-sub').textContent =
       `${rows.length} project${rows.length === 1 ? '' : 's'} · totals are sums of copies, no deduplication`;
