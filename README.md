@@ -39,6 +39,7 @@ a CDN. No ORM, no front-end build.
 ```powershell
 docker compose up -d                 # TimescaleDB on PostgreSQL 17, port 5432, user mm / mm, db monitoring
 dotnet build MachineMonitoring.slnx
+dotnet test MachineMonitoring.slnx   # tests/Agent.Tests: sampler logic, WTS smoke test, heartbeat wire shape
 .\scripts\run-server.ps1             # terminal 1: https://localhost:7181 (schema is applied on start)
 .\scripts\run-agent.ps1              # terminal 2: samples this machine and uploads every 10 s
 ```
@@ -115,6 +116,10 @@ heartbeats.
   and reports its version in every heartbeat. Intervals change without a
   restart. The heartbeat also carries active user, outbox depth, restart
   count, last upload error and a `stopping` flag on clean shutdown.
+- `UserSampler` asks `WTSEnumerateSessions` for the user of the active
+  console session and the registry's `LastLoggedOnUser` for the last user to
+  sign in. The process identity is never used: under the Service Control
+  Manager it is LocalSystem, which is not who is at the keyboard.
 - `ProjectWalker` sizes each first-level folder under the configured project
   root on a lowest-priority thread, on its own schedule.
 - `ServiceInstaller`: `--install` and `--uninstall` register the same binary
@@ -173,8 +178,9 @@ Admin area, groups, users and roles, Entra ID single sign-on, React, MSI
 rollout through Group Policy or Intune, agent self-update, the USN journal
 and `FileSystemWatcher` fallback, inventory (WMI) and the Machines page, the
 5-minute rollup, authentication on the query API and portal, and automated
-tests. The brief asked for the main end-to-end flow, and each of these would
-have added surface without changing how the flow works.
+tests beyond `tests/Agent.Tests` (user sampler and heartbeat wire shape).
+The brief asked for the main end-to-end flow, and each of these would have
+added surface without changing how the flow works.
 
 ## What I would do differently in production
 
@@ -210,6 +216,7 @@ have added surface without changing how the flow works.
 | `src/Shared` | DTOs shared by agent and server (the wire contract) |
 | `src/Agent` | Worker: samplers, SQLite outbox, uploader, config cache, project walker, service installer |
 | `src/Server` | ASP.NET Core: `POST /v1/samples`, `GET /api/*`, schema, static portal |
+| `tests/Agent.Tests` | xunit: session-picking rules, a WTS smoke test, heartbeat JSON shape |
 | `docker-compose.yml` | TimescaleDB (PostgreSQL 17) for local use |
 | `scripts/` | `run-server.ps1`, `run-agent.ps1`, `outage-demo.ps1` |
 | `CLAUDE.md` | Constraints and working style for AI-assisted sessions |
@@ -236,6 +243,7 @@ fixes sit between them as their own commits.
 - [x] 15. Stretch: Windows Service install flag, project root walk
 - [x] 16. Outage demo script
 - [x] 17. Final README
+- [x] 18. Review follow-up (issue #1): active and last logged-on user from WTS and the registry, first tests
 
 ## Troubleshooting
 

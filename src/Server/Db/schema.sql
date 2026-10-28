@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS machine_latest (
 -- shutdown, cleared by the next normal one. Idempotent ALTER keeps the
 -- "apply on every start" story working for databases created earlier.
 ALTER TABLE machine_latest ADD COLUMN IF NOT EXISTS stopped_at timestamptz;
+-- Added with the user sampler: the last user to sign in, from the registry,
+-- so a machine with nobody at the keyboard still says whose it is.
+ALTER TABLE machine_latest ADD COLUMN IF NOT EXISTS last_user text;
 
 -- History. Hypertables partitioned on time (sampled_at from the agent).
 -- received_at is the server clock, kept beside it for clock-drift checks.

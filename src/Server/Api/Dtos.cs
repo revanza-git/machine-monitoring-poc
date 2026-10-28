@@ -16,6 +16,7 @@ public sealed record MachineSummary(
     JsonElement? Drives,
     DateTimeOffset? DrivesAt,
     string? ActiveUser,
+    string? LastUser,
     string? AgentVersion,
     long? OutboxDepth,
     int? RestartCount,

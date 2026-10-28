@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Agent.Sampling;
 using Microsoft.Extensions.Options;
 using Shared;
 
@@ -99,13 +100,15 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, Conf
     {
         var o = options.Value;
         List<Sample> rows = stopping ? [] : outbox.PeekBatch(o.MaxBatchRows);
+        var user = ReadUser();
         var batch = new SampleBatch(
             MachineId: o.MachineId,
             InstallId: outbox.InstallId,
             AgentVersion: AgentVersion,
             Samples: rows,
             Heartbeat: new Heartbeat(
-                ActiveUser: $"{Environment.UserDomainName}\\{Environment.UserName}",
+                ActiveUser: user.ActiveUser,
+                LastUser: user.LastUser,
                 OutboxDepth: outbox.Depth(),
                 RestartCount: _restartCount,
                 LastError: _lastError,
@@ -155,6 +158,23 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, Conf
             _lastError = $"{DateTimeOffset.UtcNow:HH:mm:ss}Z upload failed: {reason}";
             logger.LogWarning("Upload of {Count} rows failed: {Reason}", rows.Count, reason);
             return outcome;
+        }
+    }
+
+    /// <summary>
+    /// Who is at the keyboard, asked fresh for every heartbeat. A WTS or
+    /// registry fault must not stop uploads, so it degrades to "unknown".
+    /// </summary>
+    private UserSampler.Reading ReadUser()
+    {
+        try
+        {
+            return UserSampler.Read();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read the active user");
+            return default;
         }
     }
 

@@ -66,7 +66,7 @@ public static class QueryApi
             SELECT m.machine_id, m.name, m.hostname,
                    l.last_seen, l.sampled_at, l.cpu_pct, l.mem_used_mb, l.mem_total_mb,
                    l.drives::text, l.drives_at, l.active_user, l.agent_version,
-                   l.outbox_depth, l.restart_count, l.last_error, l.config_version, l.stopped_at
+                   l.outbox_depth, l.restart_count, l.last_error, l.config_version, l.stopped_at, l.last_user
             FROM machines m
             LEFT JOIN machine_latest l USING (machine_id)
             ORDER BY m.name
@@ -92,6 +92,7 @@ public static class QueryApi
                 Drives: r.IsDBNull(8) ? null : JsonDocument.Parse(r.GetString(8)).RootElement.Clone(),
                 DrivesAt: r.GetNullableTime(9),
                 ActiveUser: r.GetNullableString(10),
+                LastUser: r.GetNullableString(17),
                 AgentVersion: r.GetNullableString(11),
                 OutboxDepth: r.GetNullable<long>(12),
                 RestartCount: r.GetNullable<int>(13),

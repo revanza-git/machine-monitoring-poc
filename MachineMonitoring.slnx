@@ -4,4 +4,7 @@
     <Project Path="src/Server/Server.csproj" />
     <Project Path="src/Shared/Shared.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Agent.Tests/Agent.Tests.csproj" />
+  </Folder>
 </Solution>

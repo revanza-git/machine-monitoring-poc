@@ -44,11 +44,13 @@ readable code over frameworks and cleverness.
   overrides such as `AgentConfig:ProjectRoot`. Never put local paths in a
   committed file.
 - `scripts/` run-server, run-agent, outage demo.
+- `tests/Agent.Tests` xunit: pure sampler logic plus Windows smoke tests.
 
 ## Commands
 
 ```powershell
 dotnet build MachineMonitoring.slnx
+dotnet test MachineMonitoring.slnx
 docker compose up -d
 dotnet run --project src/Server/Server.csproj --launch-profile https   # https://localhost:7181
 dotnet run --project src/Agent/Agent.csproj                              # Development profile: short intervals

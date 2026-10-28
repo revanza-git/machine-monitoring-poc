@@ -129,7 +129,7 @@
         <td class="num">${m.cpu_pct == null ? '—' : m.cpu_pct.toFixed(1) + '%'}</td>
         <td>${m.mem_total_mb ? bar(pct(m.mem_used_mb, m.mem_total_mb)) + ` <span class="muted">${gb(m.mem_used_mb)} / ${gb(m.mem_total_mb)} GB</span>` : '—'}</td>
         <td class="hide-sm">${(m.drives || []).map(d => `${d.name} ${bar(pct(d.total_bytes - d.free_bytes, d.total_bytes))}`).join(' &nbsp; ')}</td>
-        <td class="hide-sm">${m.active_user ?? '—'}</td>
+        <td class="hide-sm">${m.active_user ?? (m.last_user ? `<span class="muted" title="Nobody signed in; last user to sign in">${m.last_user} (last)</span>` : '—')}</td>
         <td class="hide-sm">${m.agent_version ?? '—'}</td>
         <td class="num hide-sm">${m.outbox_depth ?? '—'}</td>
       </tr>`).join('');
