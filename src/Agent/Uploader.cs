@@ -21,9 +21,11 @@ namespace Agent;
 /// On clean shutdown a final heartbeat with stopping=true is sent, best
 /// effort, so the portal can show "off" instead of "unresponsive".
 /// </summary>
-public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, ConfigCache config, ILogger<Uploader> logger)
+public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, ConfigCache config, LastError lastError, ILogger<Uploader> logger)
     : BackgroundService
 {
+    private const string Source = "upload";
+
     private static readonly string AgentVersion =
         typeof(Uploader).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
@@ -33,7 +35,6 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, Conf
         TimeSpan.FromSeconds(options.Value.BackoffMaxS));
 
     private readonly int _restartCount = outbox.IncrementRestartCount();
-    private string? _lastError;
 
     private static HttpClient CreateClient(AgentOptions o)
     {
@@ -111,7 +112,7 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, Conf
                 LastUser: user.LastUser,
                 OutboxDepth: outbox.Depth(),
                 RestartCount: _restartCount,
-                LastError: _lastError,
+                LastError: lastError.Message,
                 ConfigVersion: config.Current.Version,
                 Stopping: stopping));
 
@@ -134,7 +135,7 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, Conf
 
             var deleted = outbox.DeleteThrough(ack.AckThrough);
             _backoff.Reset();
-            _lastError = null;
+            lastError.Clear(Source);
             logger.LogInformation("Sent {Count} rows, ack_through {Ack}, deleted {Deleted}, {Depth} left",
                 rows.Count, ack.AckThrough, deleted, outbox.Depth());
 
@@ -143,19 +144,22 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, Conf
 
             return rows.Count == o.MaxBatchRows ? new Outcome.SentFull() : new Outcome.Sent();
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException
-                                   && !ct.IsCancellationRequested)
-        {
-            return Fail(new Outcome.Failed(), ex.GetBaseException().Message);
-        }
         catch (OperationCanceledException) when (stopping)
         {
             return Fail(new Outcome.Failed(), "goodbye timed out");
         }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            // Connection refused, timeout, bad certificate, a 200 that is not
+            // JSON (a proxy page), a SQLite error under the outbox: whatever it
+            // was, the rows are still in the outbox and the backoff decides
+            // when to try again. Only shutdown is allowed out of here.
+            return Fail(new Outcome.Failed(), ex.GetBaseException().Message);
+        }
 
         Outcome Fail(Outcome outcome, string reason)
         {
-            _lastError = $"{DateTimeOffset.UtcNow:HH:mm:ss}Z upload failed: {reason}";
+            lastError.Record(Source, reason);
             logger.LogWarning("Upload of {Count} rows failed: {Reason}", rows.Count, reason);
             return outcome;
         }
@@ -181,9 +185,17 @@ public sealed class Uploader(IOptions<AgentOptions> options, Outbox outbox, Conf
     /// <summary>The "no data loss" promise holds up to the cap; past it, oldest rows go first and loudly.</summary>
     private void PruneOutbox()
     {
-        var dropped = outbox.DeleteOlderThan(TimeSpan.FromDays(options.Value.OutboxMaxAgeDays));
-        if (dropped > 0)
-            logger.LogError("Outbox cap reached: dropped {Dropped} rows older than {Days} days", dropped, options.Value.OutboxMaxAgeDays);
+        try
+        {
+            var dropped = outbox.DeleteOlderThan(TimeSpan.FromDays(options.Value.OutboxMaxAgeDays));
+            if (dropped > 0)
+                logger.LogError("Outbox cap reached: dropped {Dropped} rows older than {Days} days", dropped, options.Value.OutboxMaxAgeDays);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Outbox prune failed");
+            lastError.Record("outbox", ex.GetBaseException().Message);
+        }
     }
 
     public override void Dispose()

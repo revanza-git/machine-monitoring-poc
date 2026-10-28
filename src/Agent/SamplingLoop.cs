@@ -11,7 +11,7 @@ namespace Agent;
 /// come from the config cache, so a server-side change takes effect at the
 /// next tick without a restart.
 /// </summary>
-public sealed class SamplingLoop(IOptions<AgentOptions> options, ConfigCache config, Outbox outbox, ILogger<SamplingLoop> logger)
+public sealed class SamplingLoop(IOptions<AgentOptions> options, ConfigCache config, Outbox outbox, LastError lastError, ILogger<SamplingLoop> logger)
     : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -28,27 +28,38 @@ public sealed class SamplingLoop(IOptions<AgentOptions> options, ConfigCache con
 
         while (await timer.WaitForNextTickAsync(ct))
         {
-            now = DateTimeOffset.UtcNow;
-            cpu.Tick();
-
-            var cfg = config.Current;
-            if (cfg.Version != version)
+            // One bad tick (a counter that disappears, a full disk under the
+            // outbox) is logged and reported in the heartbeat; the next tick
+            // runs as usual. An unhandled exception here would stop the host.
+            try
             {
-                logger.LogInformation("Sampling now follows config v{Version}", cfg.Version);
-                version = cfg.Version;
+                now = DateTimeOffset.UtcNow;
+                cpu.Tick();
+
+                var cfg = config.Current;
+                if (cfg.Version != version)
+                {
+                    logger.LogInformation("Sampling now follows config v{Version}", cfg.Version);
+                    version = cfg.Version;
+                }
+
+                if (now >= lastDrive.AddSeconds(cfg.DriveIntervalS))
+                {
+                    Queue(SampleKinds.Drive, now, DriveSampler.Read());
+                    lastDrive = now;
+                }
+
+                if (now >= lastCpuMem.AddSeconds(cfg.CpuMemIntervalS) && cpu.CloseInterval() is { } cpuPct)
+                {
+                    var mem = MemorySampler.Read();
+                    Queue(SampleKinds.CpuMem, now, new CpuMemData(cpuPct, mem.UsedMb, mem.TotalMb));
+                    lastCpuMem = now;
+                }
             }
-
-            if (now >= lastDrive.AddSeconds(cfg.DriveIntervalS))
+            catch (Exception ex)
             {
-                Queue(SampleKinds.Drive, now, DriveSampler.Read());
-                lastDrive = now;
-            }
-
-            if (now >= lastCpuMem.AddSeconds(cfg.CpuMemIntervalS) && cpu.CloseInterval() is { } cpuPct)
-            {
-                var mem = MemorySampler.Read();
-                Queue(SampleKinds.CpuMem, now, new CpuMemData(cpuPct, mem.UsedMb, mem.TotalMb));
-                lastCpuMem = now;
+                logger.LogError(ex, "Sampling tick failed");
+                lastError.Record("sampling", ex.GetBaseException().Message);
             }
         }
     }

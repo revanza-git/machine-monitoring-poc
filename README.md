@@ -115,7 +115,12 @@ heartbeats.
 - `ConfigCache` persists the last server config in the outbox's meta table
   and reports its version in every heartbeat. Intervals change without a
   restart. The heartbeat also carries active user, outbox depth, restart
-  count, last upload error and a `stopping` flag on clean shutdown.
+  count, the last error from any loop and a `stopping` flag on clean shutdown.
+- Every loop catches per iteration. A bad CPU tick, a failed walk, a reply
+  that is not JSON or a SQLite error under the outbox is logged, shown as
+  `last_error` in the portal and retried on the next tick or backoff. Nothing
+  short of shutdown stops the host, which is what "keep sampling, drain the
+  backlog later" needs.
 - `UserSampler` asks `WTSEnumerateSessions` for the user of the active
   console session and the registry's `LastLoggedOnUser` for the last user to
   sign in. The process identity is never used: under the Service Control

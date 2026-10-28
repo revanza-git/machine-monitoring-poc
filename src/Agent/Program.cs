@@ -20,6 +20,7 @@ builder.Services.AddWindowsService(o => o.ServiceName = ServiceInstaller.Service
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection(AgentOptions.Section));
 builder.Services.AddSingleton<Outbox>();
 builder.Services.AddSingleton<ConfigCache>();
+builder.Services.AddSingleton<LastError>();        // the heartbeat's last_error, written by all three loops
 builder.Services.AddHostedService<SamplingLoop>();
 builder.Services.AddHostedService<ProjectWalker>();
 builder.Services.AddHostedService<Uploader>();
