@@ -27,3 +27,35 @@ Notes:
   machine_latest = agents (+1 if the real agent was posting).
 - Run 8: rows sent exceeds rows acked by the resends, and the row counts
   still equal the expected values. That is the idempotency key doing its job.
+
+## Smoke runs, 2026-10-29
+
+Server and database in their containers, 1,000 machines registered, the
+simulator from the host for the first run and from its container for the
+rest. Not performance figures; they show each path works.
+
+| Run | Result |
+|-----|--------|
+| `steady --agents 5 --interval 5 --minutes 1` | 60 batches at the 1.0/s target, 59 × 2xx and 1 × 5xx (the deadlock below, retried by the agent), 75 rows sent and acked, p50 13 ms, all five machines online during the run and off after the goodbye |
+| `storm --agents 5 --backlog-hours 1 --backoff-max 10` | 5 batches, 360 rows acked, depth 0, drained in 4.2 s, no 429 |
+| `storm --agents 40 --backlog-hours 1 --no-jitter` | 40 × 2xx and 24 × 429 against `MaxInFlight` 16, every agent drained, 2,880 rows acked in 7.9 s, max in flight 40 as seen by the client |
+| `storm --agents 10 --backlog-hours 1 --no-jitter --backoff-max 10 --lost-ack-pct 30` | 2 acks lost, 864 rows sent, 720 acked, database gained exactly 600 cpu_mem and 240 drive rows: the resends were dropped |
+
+## Findings
+
+Things the runs turned up that are not numbers.
+
+- **Deadlock on the first batches into a new chunk** (smoke run, 5 agents,
+  2026-10-29). TimescaleDB opens a new weekly chunk on Thursdays at 00:00
+  UTC. Creating it attaches the chunk's foreign key to `machines`, which
+  takes a `ShareRowExclusiveLock` on that table; every batch has already
+  locked its own `machines` row by the upsert at the top of the transaction.
+  Two first-contact batches arriving together can therefore deadlock: one
+  holds the `machines` row and waits for the chunk, the other holds the chunk
+  creation and waits for `machines`. PostgreSQL kills one (`40P01`), the
+  server answers 500, and the agent retries after its backoff, so nothing is
+  lost: that path worked as designed. Still worth closing: move the
+  `machines` upsert out of the batch transaction (the machine row is
+  identity, not data, and can exist before its first sample), or retry a
+  batch once on `40P01`, or drop the foreign keys from the hypertables as
+  TimescaleDB recommends for write-heavy tables.

@@ -59,6 +59,12 @@ To step through the server instead, stop the container and run it on the
 host: `docker compose stop server`, then `.\scripts\run-server.ps1`
 (Development profile, same port).
 
+To see a fleet rather than one machine, or on a computer without Windows
+where the agent cannot run: `docker compose run --rm fleetsim prepare
+--agents 20`, `docker compose restart server`, then `docker compose run --rm
+fleetsim steady --agents 20 --minutes 5`. Twenty simulated machines appear in
+the fleet table beside the real one. See `tools/FleetSim/README.md`.
+
 The projects table stays empty until the agent is given a folder to size:
 create the git-ignored `deploy/config/appsettings.Local.json` (or
 `src/Server/appsettings.Local.json` when the server runs on the host) with
@@ -272,7 +278,7 @@ added surface without changing how the flow works.
 | `tests/Agent.Tests` | xunit: user sampler, last-error slot, idle thread, walk schedule, heartbeat JSON shape, backoff maths |
 | `tests/Server.Tests` | xunit: chart resolution thresholds, throttle, API key check, batch validator, registry merge rule |
 | `tests/FleetSim.Tests` | xunit: outbox semantics, backlog arithmetic, every upload outcome against a stub server, stats, prepare, flags |
-| `docker-compose.yml` | TimescaleDB (PostgreSQL 17) and the server container |
+| `docker-compose.yml` | TimescaleDB (PostgreSQL 17), the server container, and the simulated fleet behind a profile |
 | `deploy/` | Certificate export script; git-ignored `certs/` and `config/` mounted into the server container |
 | `scripts/` | `run-server.ps1` (host-run server), `run-agent.ps1`, `outage-demo.ps1` |
 | `CLAUDE.md` | Constraints and working style for AI-assisted sessions |
@@ -312,6 +318,9 @@ fixes sit between them as their own commits.
 - [x] 20. FleetSim: simulated fleet against the real server (`prepare`,
   `steady`, `storm`, lost-ack resends), with its own tests and backoff tests
   for the agent.
+- [x] 21. FleetSim container and Compose service, so the simulated fleet runs
+  beside the server on the compose network. Smoke runs recorded in
+  `tools/FleetSim/results.md`, including the first finding.
 
 ## Troubleshooting
 

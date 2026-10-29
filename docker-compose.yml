@@ -46,5 +46,24 @@ services:
       - ./deploy/certs:/certs:ro
       - ./deploy/config:/config:ro
 
+  # The simulated fleet (tools/FleetSim). Behind a profile so `docker compose
+  # up -d` never starts it; run it as a one-shot command instead:
+  #   docker compose run --rm fleetsim prepare --agents 1000   (then: docker compose restart server)
+  #   docker compose run --rm fleetsim steady --agents 200 --minutes 10
+  #   docker compose run --rm fleetsim storm --agents 200 --backlog-hours 6
+  # It writes machines.json into deploy/config and its JSON summaries into
+  # tools/FleetSim/results, both on the host.
+  fleetsim:
+    build:
+      context: .
+      dockerfile: tools/FleetSim/Dockerfile
+    profiles: ["sim"]
+    depends_on:
+      server:
+        condition: service_started
+    volumes:
+      - ./deploy/config:/config
+      - ./tools/FleetSim/results:/results
+
 volumes:
   mm-db-data:

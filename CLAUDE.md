@@ -50,7 +50,11 @@ readable code over frameworks and cleverness.
   in `src/Server/` for a host-run server; `ConfigDir` selects the folder. Never
   put local paths in a committed file.
 - `scripts/` run-server, run-agent, outage demo.
-- `tests/Agent.Tests` xunit: pure sampler logic plus Windows smoke tests.
+- `tools/FleetSim` simulated fleet (virtual agents, no counters) for load and
+  recovery runs against the server; runs on the host or as the `fleetsim`
+  compose service behind a profile. Run matrix in its README, numbers and
+  findings in `results.md`.
+- `tests/Agent.Tests`, `tests/Server.Tests`, `tests/FleetSim.Tests` xunit.
 
 ## Commands
 

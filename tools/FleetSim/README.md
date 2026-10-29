@@ -71,6 +71,22 @@ dotnet run --project tools/FleetSim -- storm --agents 200 --backlog-hours 6
 Certificate validation is off (the server runs on the development
 certificate), and the tool says so on every start.
 
+In Docker, next to the server and database on the compose network, so the
+traffic never crosses Docker Desktop's port proxy and a reviewer without
+Windows can still see a populated portal:
+
+```powershell
+docker compose run --rm fleetsim prepare --agents 1000
+docker compose restart server
+docker compose run --rm fleetsim steady --agents 200 --minutes 10
+docker compose run --rm fleetsim storm --agents 200 --backlog-hours 6
+```
+
+The service sits behind a compose profile, so `docker compose up -d` never
+starts it. `machines.json` lands in `deploy/config/` and the JSON summaries in
+`tools/FleetSim/results/`, both on the host. `docker stats` then gives server,
+database and simulator figures in one place.
+
 ## Run matrix
 
 Fresh database (`docker compose down -v; docker compose up -d`) before 2, 3,
