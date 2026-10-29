@@ -212,6 +212,10 @@ and `results.md` the measured numbers.
 | Design | PoC | Why |
 |--------|-----|-----|
 | Mutual TLS with AD CS machine certificates | Per-machine API key in `X-Api-Key` over the dev HTTPS certificate | mTLS needs a domain CA. Identity is still taken from the credential, never the body. |
+| Unknown but valid certificate parked as pending for admin approval | Unknown key answered 401, nothing recorded | The design names this one of the two things it would never drop, so it is called out here: the approval flow needs the admin area and a pending table, neither of which the PoC has. A re-imaged machine therefore needs its new key added by hand. |
+| Agent under 30 MB RAM and 1 % CPU | Not measured | FleetSim tests the server, not the agent. The check is Task Manager or `Get-Process Agent` over an hour of the design intervals; the agent is a single timer and a few P/Invokes, so there is no reason to expect otherwise, but it is a claim, not a figure. |
+| Agent shipped as a self-contained single file in an MSI | Framework-dependent, run with `dotnet run` or installed from `bin/` | The publish shape is a build flag away; the PoC keeps the reviewer path to one SDK. |
+| TLS 1.2+ in transit, database volume encrypted at rest | Dev certificate; plain Compose volume | Encryption at rest is a host or volume setting, not code. The design's security row is otherwise reflected: no inbound ports on workstations, no fleet credentials on the server. |
 | Machines registered and approved in the admin area | `Machines` list in the server's `appsettings.json`, extended by an optional git-ignored `machines.json` | No admin area in the PoC. The second file is how a simulated fleet is registered without touching a committed file. |
 | One on-premise VM for API and database | Compose: database and server containers on one host; the agent on the host | Same shape. The agent reads Windows counters and can never be containerised. |
 | Config per machine or group, edited in the admin area | One fleet-wide `AgentConfig` in appsettings, hot-reloaded | Same protocol (versioned, sent only when behind), simplest possible source. Bump `Version` when values change: agents compare versions, not values. |
@@ -229,6 +233,18 @@ Machine-specific overrides (such as a real `ProjectRoot`) go in the
 git-ignored `deploy/config/appsettings.Local.json` for the container, or
 `src/Server/appsettings.Local.json` for a host-run server, so local paths
 never reach the repository.
+
+## Known issues
+
+- **Deadlock on the first batches into a new chunk.** Found by the FleetSim
+  smoke run. TimescaleDB opens a new weekly chunk on Thursdays; creating it
+  attaches the chunk's foreign key to `machines`, and every batch already
+  holds its own `machines` row from the upsert at the top of its transaction.
+  Two first-contact batches arriving together can deadlock, PostgreSQL kills
+  one, the server answers 500 and the agent retries after its backoff, so no
+  data is lost. The fix options (move the `machines` upsert out of the batch
+  transaction, retry once on `40P01`, or drop the foreign keys from the
+  hypertables) are in `tools/FleetSim/results.md`.
 
 ## Left out on purpose
 

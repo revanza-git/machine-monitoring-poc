@@ -104,7 +104,11 @@ Record the numbers in [results.md](results.md).
 | 7 | `storm --agents 200 --backlog-hours 24` | full-batch-go-again draining, four batches per agent |
 | 8 | `storm --agents 200 --backlog-hours 6 --lost-ack-pct 20` | resends are dropped by the idempotency key |
 
-Row counts after a run: `docker exec -i mm-db psql -U mm -d monitoring -f - < tools/FleetSim/counts.sql`.
+Row counts after a run, from PowerShell (which has no `<` redirection):
+
+```powershell
+Get-Content tools/FleetSim/counts.sql | docker exec -i mm-db psql -U mm -d monitoring -f -
+```
 
 ## Scope, honestly
 

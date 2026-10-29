@@ -1,4 +1,7 @@
--- Row counts after a run, to compare with the simulator's rows_acked:
+-- Row counts after a run, to compare with the simulator's rows_acked.
+-- PowerShell (no '<' redirection there):
+--   Get-Content tools/FleetSim/counts.sql | docker exec -i mm-db psql -U mm -d monitoring -f -
+-- Bash:
 --   docker exec -i mm-db psql -U mm -d monitoring -f - < tools/FleetSim/counts.sql
 -- Each virtual agent sends two drives per drive sample, so drive_samples
 -- holds twice the drive sample count.
