@@ -6,6 +6,10 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Agent.Tests/Agent.Tests.csproj" />
+    <Project Path="tests/FleetSim.Tests/FleetSim.Tests.csproj" />
     <Project Path="tests/Server.Tests/Server.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/FleetSim/FleetSim.csproj" />
   </Folder>
 </Solution>

@@ -43,7 +43,7 @@ a CDN. No ORM, no front-end build.
 .\deploy\export-dev-cert.ps1         # once: the server container serves HTTPS with the dev certificate
 docker compose up -d                 # TimescaleDB on PostgreSQL 17 (port 5432, mm / mm, db monitoring) + the server on https://localhost:7181
 dotnet build MachineMonitoring.slnx
-dotnet test MachineMonitoring.slnx   # unit tests for agent and server logic
+dotnet test MachineMonitoring.slnx   # unit tests for agent, server and simulator logic
 .\scripts\run-agent.ps1              # samples this machine and uploads every 10 s
 ```
 
@@ -192,6 +192,15 @@ heartbeats.
 **Shared** (`src/Shared`): the wire contract as records, snake_case JSON, so
 agent and server can never disagree on the shape.
 
+**FleetSim** (`tools/FleetSim`): a simulated fleet against the real server,
+so the design's scale numbers (3 batches/s at 200 machines, the six-hour
+outage, hold at 1,000) are measured rather than estimated. The virtual
+agents read no counters; everything from the queue onwards is the agent's
+behaviour, with its `Backoff.cs` linked in. `steady` is the normal minute at
+fleet scale, `storm` is the recovery after an outage, and `--lost-ack-pct`
+forces resends to prove the idempotency key. Its README has the run matrix
+and `results.md` the measured numbers.
+
 ## Assumptions and simplifications
 
 | Design | PoC | Why |
@@ -203,6 +212,7 @@ agent and server can never disagree on the shape.
 | Nightly folder walk kept current by the NTFS USN journal; allocated size on disk | Nightly full walk only; logical file size | The journal subscription is the one piece that is real engineering effort; the walk shows the data path. Without the journal there is no 15-minute report of changed folders: figures are as of the last walk. |
 | 5-minute and hourly rollups | Hourly continuous aggregate; 5-minute buckets computed on the fly | Shows the pattern once; a week of raw rows (about 10,000 per machine) buckets cheaply. Commit charge is stored raw and shown in the fleet table, but not rolled up or charted. |
 | Status transitions tracked by the server | Status computed from `last_seen` at read time | Gives the same hysteresis with no state to maintain. |
+| Fleet overview filtered by group, in React | One table, every machine, re-rendered every 10 s | Fine at 200 rows; a long page at 1,000, as the FleetSim runs show. Grouping is admin-area work the PoC leaves out. |
 | Dedup key `(machine_id, install_id, seq)` | Unique index also includes `time` | TimescaleDB requires the partition column in unique indexes. A resend carries the same `sampled_at`, so nothing changes in practice. |
 | Agent state under ProgramData, MSI install | `data/` beside the content root, `--install` via sc.exe | PoC-sized version of the same idea. |
 | Agent validates the server certificate | Development profile sets `TrustAnyServerCertificate` | So the reviewer path works without trusting the dev certificate first. Off in `appsettings.json`. |
@@ -249,7 +259,7 @@ added surface without changing how the flow works.
 - **Operations**: database on its own volume with backups and restore
   drills, the API behind a reverse proxy with a real certificate, a
   connection-pool-sized ingest limit, and a load test at 1,000 agents before
-  the first rollout.
+  the first rollout (`tools/FleetSim` is the PoC version of that test).
 
 ## Layout
 
@@ -258,8 +268,10 @@ added surface without changing how the flow works.
 | `src/Shared` | DTOs shared by agent and server (the wire contract) |
 | `src/Agent` | Worker: samplers, SQLite outbox, uploader, config cache, project walker, service installer |
 | `src/Server` | ASP.NET Core: `POST /v1/samples`, `GET /api/*`, schema, static portal |
-| `tests/Agent.Tests` | xunit: user sampler, last-error slot, idle thread, walk schedule, heartbeat JSON shape |
+| `tools/FleetSim` | Simulated fleet for load and recovery runs against the real server; run matrix in its README, numbers in `results.md` |
+| `tests/Agent.Tests` | xunit: user sampler, last-error slot, idle thread, walk schedule, heartbeat JSON shape, backoff maths |
 | `tests/Server.Tests` | xunit: chart resolution thresholds, throttle, API key check, batch validator, registry merge rule |
+| `tests/FleetSim.Tests` | xunit: outbox semantics, backlog arithmetic, every upload outcome against a stub server, stats, prepare, flags |
 | `docker-compose.yml` | TimescaleDB (PostgreSQL 17) and the server container |
 | `deploy/` | Certificate export script; git-ignored `certs/` and `config/` mounted into the server container |
 | `scripts/` | `run-server.ps1` (host-run server), `run-agent.ps1`, `outage-demo.ps1` |
@@ -297,6 +309,9 @@ fixes sit between them as their own commits.
   grew; `v0.1.0` stays on the commit that was reviewed.
 - [x] 19. Server container: Dockerfile and Compose service, overrides and
   machine registry mounted from `deploy/config/`, merge rule under test.
+- [x] 20. FleetSim: simulated fleet against the real server (`prepare`,
+  `steady`, `storm`, lost-ack resends), with its own tests and backoff tests
+  for the agent.
 
 ## Troubleshooting
 

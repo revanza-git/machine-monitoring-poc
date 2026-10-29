@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FleetSim</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The real wire contract: batches are built from the same records the agent sends. -->
+    <ProjectReference Include="..\..\src\Shared\Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The agent's own backoff, linked rather than copied, so the storm uses
+         the exact maths a real fleet would. A file link instead of a project
+         reference: the Agent project is a Windows service host and would drag
+         hosting and performance-counter packages into a load generator. -->
+    <Compile Include="..\..\src\Agent\Backoff.cs" Link="Backoff.cs" />
+  </ItemGroup>
+
+</Project>
