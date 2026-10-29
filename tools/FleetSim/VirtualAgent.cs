@@ -173,11 +173,12 @@ public sealed class VirtualAgent
                       ?? throw new InvalidOperationException("empty ack");
             _stats.Record(Stats.Ok, clock.Elapsed, rowsSent: rows.Count);   // latency includes reading the body
 
-            if (_lostAckPct > 0 && _rng.NextDouble() * 100 < _lostAckPct)
+            if (!stopping && _lostAckPct > 0 && _rng.NextDouble() * 100 < _lostAckPct)
             {
                 // The server stored the rows and replied, but the reply never
                 // reached the agent. The rows stay and are resent after the
-                // backoff; the server must drop them as already seen.
+                // backoff; the server must drop them as already seen. The
+                // goodbye is exempt: it carries no rows, and the run is over.
                 _stats.LostAck();
                 return Fail(new Outcome.Failed("ack lost (simulated)"));
             }

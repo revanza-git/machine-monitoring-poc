@@ -163,6 +163,14 @@ public class UploadStepTests
     }
 
     [Fact]
+    public async Task Stopping_heartbeat_is_never_a_lost_ack()
+    {
+        var (agent, _, stats) = StubServer.Agent(_ => StubServer.Ack(0), lostAckPct: 100);
+        Assert.IsType<VirtualAgent.Outcome.Sent>(await agent.SendOnceAsync(stopping: true, CancellationToken.None));
+        Assert.Equal(0, stats.Summarize("test", 1, "stub", 7, null, [agent], false).LostAcks);
+    }
+
+    [Fact]
     public async Task Cancellation_is_not_swallowed()
     {
         var (agent, _, _) = StubServer.Agent(_ => StubServer.Ack(0));
