@@ -64,8 +64,16 @@ Things the runs turned up that are not numbers.
   server answers 500, and the agent retries after its backoff, so nothing is
   lost: that path worked as designed. Reproduced on the fresh database of
   run 2 (two victims at 3 s, both retried): two fresh databases out of two.
-  Still worth closing: move the
-  `machines` upsert out of the batch transaction (the machine row is
-  identity, not data, and can exist before its first sample), or retry a
-  batch once on `40P01`, or drop the foreign keys from the hypertables as
-  TimescaleDB recommends for write-heavy tables.
+  The options were to move the `machines` upsert out of the batch
+  transaction (the machine row is identity, not data, and can exist before
+  its first sample), to retry a batch once on `40P01`, or to drop the
+  foreign keys from the hypertables as TimescaleDB recommends for
+  write-heavy tables. **Fixed in step 22** with the first: the upsert
+  commits on its own before the transaction begins, so no `machines` row is
+  locked while a chunk is created. Retrying would have hidden the cause and
+  dropping the keys would have changed the design's schema. Verified on
+  2026-10-29 with a fresh database before each run, so the first batches had
+  to create the week's chunks under load: `storm --agents 40 --backlog-hours 1
+  --no-jitter` gave 40 × 2xx, 24 × 429, no 5xx; `steady --agents 200
+  --minutes 2` gave 400 × 2xx, no 5xx. The server log had no `40P01` in
+  either run, where every earlier fresh start had two.

@@ -74,7 +74,8 @@ docker compose run --rm fleetsim steady --agents 200 --minutes 10
 
 Two of the 2,001 batches failed on the chunk deadlock described under
 [Known issues](#known-issues), three seconds into a fresh database; both
-agents retried and nothing was lost.
+agents retried and nothing was lost. The deadlock has been fixed since
+(step 22); the figures above are from the run that found it.
 
 ```powershell
 docker compose run --rm fleetsim storm --agents 200 --backlog-hours 6
@@ -252,10 +253,12 @@ heartbeats.
   the 500-row cap is one constant in `Shared` that the agent clamps its own
   setting to. The reply carries config only when the agent's version is
   behind.
-- `PostgresSampleStore`: one transaction per batch upserts the machine,
-  inserts history with `ON CONFLICT DO NOTHING` (one `NpgsqlBatch`, one round
-  trip) and upserts `machine_latest`. A resend stores nothing new and acks the
-  same number. A payload that does not parse is logged and acked rather than
+- `PostgresSampleStore`: upserts the machine row on its own, then one
+  transaction per batch inserts history with `ON CONFLICT DO NOTHING` (one
+  `NpgsqlBatch`, one round trip) and upserts `machine_latest`. A resend
+  stores nothing new and acks the same number. The machine row sits outside
+  the transaction because holding it deadlocked against TimescaleDB creating
+  a new weekly chunk (see Known issues). A payload that does not parse is logged and acked rather than
   rejected, so a poison row cannot wedge an agent.
 - `schema.sql` is the design's tables made literal, embedded in the server
   and applied idempotently on every start: `machines`, `machine_latest`,
@@ -322,17 +325,21 @@ never reach the repository.
 
 ## Known issues
 
-- **Deadlock on the first batches into a new chunk.** Found by the FleetSim
-  smoke run. TimescaleDB opens a new weekly chunk on Thursdays; creating it
-  attaches the chunk's foreign key to `machines`, and every batch already
-  holds its own `machines` row from the upsert at the top of its transaction.
-  Two first-contact batches arriving together can deadlock, PostgreSQL kills
-  one, the server answers 500 and the agent retries after its backoff, so no
-  data is lost. Reproduced on both fresh databases tried so far, each time
-  within seconds of the first batches and each time retried successfully.
-  The fix options (move the `machines` upsert out of the batch transaction,
-  retry once on `40P01`, or drop the foreign keys from the hypertables) are
-  in `tools/FleetSim/results.md`.
+- **Deadlock on the first batches into a new chunk, fixed in step 22.**
+  Found by the FleetSim smoke run. TimescaleDB opens a new weekly chunk on
+  Thursdays; creating it attaches the chunk's foreign key to `machines`, and
+  every batch held its own `machines` row from the upsert at the top of its
+  transaction. Two first-contact batches arriving together deadlocked,
+  PostgreSQL killed one, the server answered 500 and the agent retried after
+  its backoff, so no data was lost: it reproduced on every fresh database
+  tried, always within seconds of the first batches, always retried
+  successfully. The fix: the `machines` upsert now commits on its own before
+  the batch transaction, so no row lock is held while a chunk is created.
+  The machine row is identity, not data; a machine with no samples yet shows
+  as "unknown", the same as one that has never posted. Verified on fresh
+  databases with the no-jitter storm and a 200-agent steady: zero 5xx where
+  there had been two each time. The finding stays in
+  `tools/FleetSim/results.md`.
 
 ## Left out on purpose
 
@@ -356,7 +363,8 @@ added surface without changing how the flow works.
   one idempotent script, with the TimescaleDB policies as migrations.
 - **Tests**: beyond the unit tests in `tests/`, cover `Backoff`,
   `MachineStatus` and `Outbox`; integration tests for ingest against a
-  Testcontainers TimescaleDB, including the resend and poison-row cases; a
+  Testcontainers TimescaleDB, including the resend and poison-row cases and
+  the new-chunk deadlock FleetSim found, which no unit test can reproduce; a
   contract test on every shared DTO.
 - **Observability**: structured logs through OpenTelemetry, metrics for
   batches per second, rejected batches, 429s, queue depth per machine and
@@ -425,6 +433,8 @@ fixes sit between them as their own commits.
 - [x] 21. FleetSim container and Compose service, so the simulated fleet runs
   beside the server on the compose network. Smoke runs recorded in
   `tools/FleetSim/results.md`, including the first finding.
+- [x] 22. Server: the `machines` upsert commits before the batch transaction,
+  closing the new-chunk deadlock FleetSim found. Verified on fresh databases.
 
 ## Troubleshooting
 

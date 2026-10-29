@@ -7,11 +7,13 @@ using Shared;
 namespace Server.Ingest;
 
 /// <summary>
-/// Persists a batch in ONE transaction: upsert the machines row, append
-/// history rows (ON CONFLICT DO NOTHING on the (machine, install, seq) key,
-/// so resends are dropped), and upsert machine_latest from the heartbeat and
-/// the newest sample of each kind. Overview and charts therefore can never
-/// disagree, and a lost ack costs a harmless resend, never a double count.
+/// Persists a batch: the machines row is upserted on its own, then ONE
+/// transaction appends the history rows (ON CONFLICT DO NOTHING on the
+/// (machine, install, seq) key, so resends are dropped) and upserts
+/// machine_latest from the heartbeat and the newest sample of each kind.
+/// Overview and charts therefore can never disagree, and a lost ack costs a
+/// harmless resend, never a double count. Why the machine row sits outside
+/// the transaction is explained in <see cref="StoreAsync"/>.
 ///
 /// History inserts go in one NpgsqlBatch: a 500-row batch is one round trip.
 /// A sample whose payload does not parse is logged and acknowledged rather
@@ -23,10 +25,19 @@ public sealed class PostgresSampleStore(NpgsqlDataSource db, ILogger<PostgresSam
     public async Task<long> StoreAsync(MachineIdentity machine, SampleBatch batch, DateTimeOffset receivedAt, CancellationToken ct)
     {
         await using var conn = await db.OpenConnectionAsync(ct);
-        await using var tx = await conn.BeginTransactionAsync(ct);
 
+        // The machines row is identity, not data, so it is upserted and
+        // committed on its own before the batch transaction begins. Holding
+        // its row lock through the transaction deadlocked against TimescaleDB
+        // creating a new weekly chunk, which attaches the chunk's foreign key
+        // to machines: one batch held its row and waited for the chunk, the
+        // other held the chunk and waited for the table (found by the FleetSim
+        // runs, see tools/FleetSim/results.md). A batch that fails after this
+        // point leaves a machine with no samples, which the overview shows as
+        // "unknown", the same as a registered machine that has never posted.
         var machineId = await UpsertMachineAsync(conn, machine.Name, batch.MachineId, ct);
 
+        await using var tx = await conn.BeginTransactionAsync(ct);
         var (inserted, latestCpuMem, latestDrives) = await InsertHistoryAsync(conn, machineId, batch, receivedAt, ct);
         await UpsertLatestAsync(conn, machineId, batch, receivedAt, latestCpuMem, latestDrives, ct);
 
