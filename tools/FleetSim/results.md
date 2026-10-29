@@ -9,9 +9,9 @@ number is an upper bound on cost. Fill in and keep; the JSON files stay local.
 | # | Run | Date | Batches/s (target) | p50 / p95 / p99 ms | 429s | Drain s | Server CPU % | Server mem MB | DB CPU % | DB mem MB | cpu_mem rows | drive rows | machine_latest |
 |---|-----|------|--------------------|--------------------|------|---------|--------------|---------------|----------|-----------|--------------|------------|----------------|
 | 1 | `steady --agents 50 --minutes 10` | | | | | - | | | | | | | |
-| 2 | `steady --agents 200 --minutes 10` | | | | | - | | | | | | | |
+| 2 | `steady --agents 200 --minutes 10` | 2026-10-29 | 3.33 (3.33) | 11 / 17 / 48 | 0 | - | 1–3 | 76–110 | ~1 | 80–90 | 2,001 | 804 | 200 |
 | 3 | `steady --agents 1000 --minutes 10` | | | | | - | | | | | | | |
-| 4 | `storm --agents 200 --backlog-hours 6` | | | | | | | | | | | | |
+| 4 | `storm --agents 200 --backlog-hours 6` | 2026-10-29 | 200 batches over a 149 s drain | 268 / 424 / 578 | 0 | 149 | 5–7, 5 s peaks to 45 | 90–110 | 25–64, 5 s peaks to 97 | 80–90 | 72,000 | 28,800 | 200 |
 | 5 | `storm --agents 1000 --backlog-hours 6` | | | | | | | | | | | | |
 | 6 | `storm --agents 1000 --backlog-hours 6 --no-jitter` | | | | | | | | | | | | |
 | 7 | `storm --agents 200 --backlog-hours 24` | | | | | | | | | | | | |
@@ -27,6 +27,14 @@ Notes:
   machine_latest = agents (+1 if the real agent was posting).
 - Run 8: rows sent exceeds rows acked by the resends, and the row counts
   still equal the expected values. That is the idempotency key doing its job.
+- Runs 2 and 4 on 2026-10-29 overlapped: the storm was started 81 s into
+  the steady run, so it drained on top of 3.3 batches/s of live traffic and
+  the steady's later minutes include the drain. Both are therefore slightly
+  harsher than the matrix intends. Run 2 had 2 × 5xx out of 2,001, the chunk
+  deadlock below at 3 s into the fresh database, both retried; the row
+  counts (74,001 cpu_mem = 72,000 + 2,001; 29,604 drive = 28,800 + 804)
+  confirm nothing was lost. CPU figures are `docker stats` percentages of
+  one core, sampled every 5 s; the ranges are 30 s averages.
 
 ## Smoke runs, 2026-10-29
 
@@ -54,7 +62,9 @@ Things the runs turned up that are not numbers.
   holds the `machines` row and waits for the chunk, the other holds the chunk
   creation and waits for `machines`. PostgreSQL kills one (`40P01`), the
   server answers 500, and the agent retries after its backoff, so nothing is
-  lost: that path worked as designed. Still worth closing: move the
+  lost: that path worked as designed. Reproduced on the fresh database of
+  run 2 (two victims at 3 s, both retried): two fresh databases out of two.
+  Still worth closing: move the
   `machines` upsert out of the batch transaction (the machine row is
   identity, not data, and can exist before its first sample), or retry a
   batch once on `40P01`, or drop the foreign keys from the hypertables as

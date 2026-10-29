@@ -53,6 +53,48 @@ the one component that never runs in a container, because it reads Windows
 counters. The two mounted folders are git-ignored and explain the two setup
 commands below.
 
+## Measured at 200 machines
+
+The design is sized for 200 machines and says "about 3 batches a second".
+Measured with the simulated fleet on 2026-10-29, server and database in
+their containers, everything on one laptop. Full table and the raw JSON
+summaries are described in `tools/FleetSim/results.md`.
+
+```powershell
+docker compose run --rm fleetsim steady --agents 200 --minutes 10
+```
+
+| Measure | Result |
+|---------|--------|
+| Batches | 2,001 in ten minutes, 3.33/s against a 3.33/s target |
+| Latency per batch | p50 11 ms, p99 48 ms |
+| Server | 1 to 3 % of one core, about 100 MB |
+| Database | about 1 % of one core, under 100 MB |
+| Rows | 2,403 sent, 2,403 acknowledged, every one in the database |
+
+Two of the 2,001 batches failed on the chunk deadlock described under
+[Known issues](#known-issues), three seconds into a fresh database; both
+agents retried and nothing was lost.
+
+```powershell
+docker compose run --rm fleetsim storm --agents 200 --backlog-hours 6
+```
+
+| Measure | Result |
+|---------|--------|
+| Backlog | 86,400 rows, 432 per machine, at their original timestamps |
+| Drain | 149 s from first post to last acknowledgement, zero 429s |
+| Latency per 432-row batch | p50 268 ms, p99 578 ms |
+| Database | 25 to 65 % of one core over the drain, single peaks at one full core |
+| Server | 5 to 7 % of one core |
+
+The drain time equals the width of the agents' jitter window, so the fleet's
+spread set the pace and the server never had to shed load. The storm was
+started 81 s into the steady run, so it drained on top of live traffic; both
+figures are therefore slightly harsher than the matrix intends, and all
+three containers shared the machine, so the costs are upper bounds. The
+1,000-machine runs have not been done yet.
+
 ## Prerequisites
 
 - Windows 10 or 11 (the agent reads Windows performance counters and Win32
@@ -286,9 +328,11 @@ never reach the repository.
   holds its own `machines` row from the upsert at the top of its transaction.
   Two first-contact batches arriving together can deadlock, PostgreSQL kills
   one, the server answers 500 and the agent retries after its backoff, so no
-  data is lost. The fix options (move the `machines` upsert out of the batch
-  transaction, retry once on `40P01`, or drop the foreign keys from the
-  hypertables) are in `tools/FleetSim/results.md`.
+  data is lost. Reproduced on both fresh databases tried so far, each time
+  within seconds of the first batches and each time retried successfully.
+  The fix options (move the `machines` upsert out of the batch transaction,
+  retry once on `40P01`, or drop the foreign keys from the hypertables) are
+  in `tools/FleetSim/results.md`.
 
 ## Left out on purpose
 
