@@ -1,0 +1,3 @@
+# The exported development certificate lives here and never reaches the repo.
+*
+!.gitignore

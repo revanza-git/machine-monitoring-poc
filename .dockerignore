@@ -1,0 +1,14 @@
+# Keep build output, local state and anything machine-specific out of images.
+**/bin/
+**/obj/
+.git/
+.vs/
+tests/
+scripts/
+deploy/
+Claude outputs/
+src/Agent/data/
+src/Server/appsettings.Local.json
+src/Server/appsettings.local.json
+src/Server/machines.json
+*.md

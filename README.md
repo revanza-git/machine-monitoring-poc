@@ -23,8 +23,11 @@ The commit history is one step per commit, in the order listed under
 - Windows 10 or 11 (the agent reads Windows performance counters and Win32
   memory APIs; it is Windows-only by design)
 - .NET SDK 10.0 (built with 10.0.402)
-- Docker Desktop, for the database only
-- The ASP.NET Core development certificate. Either trust it once with
+- Docker Desktop, for the database and the server. The agent is the one
+  component that never runs in a container.
+- The ASP.NET Core development certificate. The server container serves
+  HTTPS with it, exported once by `deploy\export-dev-cert.ps1` into the
+  git-ignored `deploy/certs/`. Either trust it with
   `dotnet dev-certs https --trust`, or leave the agent's Development profile
   as is: it sets `TrustAnyServerCertificate`, which skips validation and logs
   a warning. Development only.
@@ -37,25 +40,31 @@ a CDN. No ORM, no front-end build.
 ## Build and run
 
 ```powershell
-docker compose up -d                 # TimescaleDB on PostgreSQL 17, port 5432, user mm / mm, db monitoring
+.\deploy\export-dev-cert.ps1         # once: the server container serves HTTPS with the dev certificate
+docker compose up -d                 # TimescaleDB on PostgreSQL 17 (port 5432, mm / mm, db monitoring) + the server on https://localhost:7181
 dotnet build MachineMonitoring.slnx
-dotnet test MachineMonitoring.slnx   # tests/Agent.Tests: sampler logic, WTS smoke test, heartbeat wire shape
-.\scripts\run-server.ps1             # terminal 1: https://localhost:7181 (schema is applied on start)
-.\scripts\run-agent.ps1              # terminal 2: samples this machine and uploads every 10 s
+dotnet test MachineMonitoring.slnx   # unit tests for agent and server logic
+.\scripts\run-agent.ps1              # samples this machine and uploads every 10 s
 ```
 
 Then open <https://localhost:7181>. Within about 30 seconds the fleet table
 shows this machine as online with its CPU, memory, drives and active user, and
-the chart fills in. Both scripts run with the Development profile, which uses
+the chart fills in. The agent runs with the Development profile, which uses
 short intervals (2 s CPU tick, 10 s cpu_mem, 30 s drives, 2 min project walk,
-10 s upload) so a demo shows data quickly. `appsettings.json` in each project
-holds the design values (60 s, 5 min, nightly walk at 02:00).
+10 s upload) so a demo shows data quickly. The server container runs with the
+Production profile, so the config it hands out is the design's (60 s, 5 min,
+nightly walk at 02:00); the agent switches to those on its first ack.
+
+To step through the server instead, stop the container and run it on the
+host: `docker compose stop server`, then `.\scripts\run-server.ps1`
+(Development profile, same port).
 
 The projects table stays empty until the agent is given a folder to size:
-create the git-ignored `src/Server/appsettings.Local.json` with
-`{ "AgentConfig": { "ProjectRoot": "C:/path/to/your/repos" } }`. The server
-reloads it without a restart; if the agent is already running, also bump
-`AgentConfig:Version` so it picks the change up on its next heartbeat.
+create the git-ignored `deploy/config/appsettings.Local.json` (or
+`src/Server/appsettings.Local.json` when the server runs on the host) with
+`{ "AgentConfig": { "Version": 2, "ProjectRoot": "C:/path/to/your/repos" } }`.
+The server reloads it without a restart; the version bump makes a running
+agent pick the change up on its next heartbeat.
 
 Useful endpoints:
 
@@ -74,12 +83,13 @@ another entry and point the second agent's `Agent:ApiKey` at it.
 ## Outage demo
 
 ```powershell
-docker compose up -d
+docker compose up -d db
 dotnet build MachineMonitoring.slnx
 .\scripts\outage-demo.ps1            # -OutageSeconds 60 by default
 ```
 
-The script starts the server and the agent in their own windows, lets the
+The script needs the server as a host process it can kill, so it stops the
+server container first if one is running. It starts the server and the agent in their own windows, lets the
 first batches be acknowledged, kills the server for a minute, then restarts
 it. In the agent window you see uploads fail, retries backing off with
 jitter while the outbox depth climbs, and on recovery one batch draining the
@@ -166,6 +176,12 @@ heartbeats.
   after a stopping heartbeat). Metrics pick raw (up to 1 h), 5-minute (up to
   7 d) or hourly resolution from the range, as the design says; the hourly
   path reads the continuous aggregate.
+- `Dockerfile` and the Compose `server` service: a two-stage build to the
+  runtime image, started with the database by `docker compose up -d`. The
+  git-ignored overrides and the machine registry (`machines.json`) are
+  mounted from `deploy/config/`, never baked into the image; `ConfigDir`
+  tells the server where to look. The server can still run on the host with
+  `dotnet run` when stepping through it matters more than one command.
 - `wwwroot/index.html`: fleet table, one CPU/memory chart on a single
   0 to 100 % axis with a real-time x-axis, and a projects table. Where a
   machine has no samples (the agent was not running) the line is left empty
@@ -181,7 +197,8 @@ agent and server can never disagree on the shape.
 | Design | PoC | Why |
 |--------|-----|-----|
 | Mutual TLS with AD CS machine certificates | Per-machine API key in `X-Api-Key` over the dev HTTPS certificate | mTLS needs a domain CA. Identity is still taken from the credential, never the body. |
-| Machines registered and approved in the admin area | `Machines` list in the server's `appsettings.json` | No admin area in the PoC. |
+| Machines registered and approved in the admin area | `Machines` list in the server's `appsettings.json`, extended by an optional git-ignored `machines.json` | No admin area in the PoC. The second file is how a simulated fleet is registered without touching a committed file. |
+| One on-premise VM for API and database | Compose: database and server containers on one host; the agent on the host | Same shape. The agent reads Windows counters and can never be containerised. |
 | Config per machine or group, edited in the admin area | One fleet-wide `AgentConfig` in appsettings, hot-reloaded | Same protocol (versioned, sent only when behind), simplest possible source. Bump `Version` when values change: agents compare versions, not values. |
 | Nightly folder walk kept current by the NTFS USN journal; allocated size on disk | Nightly full walk only; logical file size | The journal subscription is the one piece that is real engineering effort; the walk shows the data path. Without the journal there is no 15-minute report of changed folders: figures are as of the last walk. |
 | 5-minute and hourly rollups | Hourly continuous aggregate; 5-minute buckets computed on the fly | Shows the pattern once; a week of raw rows (about 10,000 per machine) buckets cheaply. Commit charge is stored raw and shown in the fleet table, but not rolled up or charted. |
@@ -193,8 +210,9 @@ agent and server can never disagree on the shape.
 | Deck: the agent "wakes once a minute" | Document and code: the CPU counter is read every few seconds and the average reported per minute | The document is the more precise of the two; a per-minute snapshot would miss short spikes. |
 
 Machine-specific overrides (such as a real `ProjectRoot`) go in the
-git-ignored `src/Server/appsettings.Local.json`, so local paths never reach
-the repository.
+git-ignored `deploy/config/appsettings.Local.json` for the container, or
+`src/Server/appsettings.Local.json` for a host-run server, so local paths
+never reach the repository.
 
 ## Left out on purpose
 
@@ -241,9 +259,10 @@ added surface without changing how the flow works.
 | `src/Agent` | Worker: samplers, SQLite outbox, uploader, config cache, project walker, service installer |
 | `src/Server` | ASP.NET Core: `POST /v1/samples`, `GET /api/*`, schema, static portal |
 | `tests/Agent.Tests` | xunit: user sampler, last-error slot, idle thread, walk schedule, heartbeat JSON shape |
-| `tests/Server.Tests` | xunit: chart resolution thresholds, throttle, API key check, batch validator |
-| `docker-compose.yml` | TimescaleDB (PostgreSQL 17) for local use |
-| `scripts/` | `run-server.ps1`, `run-agent.ps1`, `outage-demo.ps1` |
+| `tests/Server.Tests` | xunit: chart resolution thresholds, throttle, API key check, batch validator, registry merge rule |
+| `docker-compose.yml` | TimescaleDB (PostgreSQL 17) and the server container |
+| `deploy/` | Certificate export script; git-ignored `certs/` and `config/` mounted into the server container |
+| `scripts/` | `run-server.ps1` (host-run server), `run-agent.ps1`, `outage-demo.ps1` |
 | `CLAUDE.md` | Constraints and working style for AI-assisted sessions |
 
 ## Progress
@@ -276,15 +295,23 @@ fixes sit between them as their own commits.
   Then the restart-loop flag, the one item first left in the table. The
   agent reports 0.2.0 from here on, since the heartbeat and sample shapes
   grew; `v0.1.0` stays on the commit that was reviewed.
+- [x] 19. Server container: Dockerfile and Compose service, overrides and
+  machine registry mounted from `deploy/config/`, merge rule under test.
 
 ## Troubleshooting
 
 - **Agent logs "certificate" errors**: trust the dev certificate
   (`dotnet dev-certs https --trust`) or run with the Development profile.
+- **Server container exits with a certificate error**: run
+  `.\deploy\export-dev-cert.ps1` first; the container expects
+  `deploy/certs/server.pfx`.
+- **Host server fails to bind 7181**: the container owns the port. Run
+  `docker compose stop server` before `.\scripts\run-server.ps1`.
 - **Server logs "Database not ready; retrying"**: PostgreSQL is still
   starting; the server retries for a minute. Check `docker compose ps`.
-- **Port 7181 or 5432 in use**: change `applicationUrl` in
-  `src/Server/Properties/launchSettings.json` and `Agent:ServerUrl`, or the
-  port mapping in `docker-compose.yml` and `ConnectionStrings:Monitoring`.
+- **Port 7181 or 5432 in use**: change the port mappings in
+  `docker-compose.yml` (and `Agent:ServerUrl` for 7181), or for a host-run
+  server `applicationUrl` in `src/Server/Properties/launchSettings.json` and
+  `ConnectionStrings:Monitoring`.
 - **Reset everything**: `docker compose down -v` drops the database;
   deleting `src/Agent/data/` gives the agent a new install id and seq 1.

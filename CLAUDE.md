@@ -24,9 +24,11 @@ readable code over frameworks and cleverness.
   from the server.
 - Push only. The agent initiates every connection; nothing listens on the
   workstation.
-- The agent never runs in Docker (it reads real Windows counters). Only the
-  database runs in Docker. Reviewer path: `docker compose up -d`, `dotnet run`
-  twice, open the browser.
+- The agent never runs in Docker (it reads real Windows counters). The
+  database and the server do. Reviewer path: `deploy\export-dev-cert.ps1`
+  once, `docker compose up -d`, `dotnet run` for the agent, open the browser.
+  The server can still run on the host with `dotnet run` for stepping through
+  it, after `docker compose stop server`.
 - Keep files small and named after the design concept they implement
   (`Outbox.cs`, `Uploader.cs`, `CpuSampler.cs`, `IngestEndpoint.cs`).
 
@@ -39,10 +41,14 @@ readable code over frameworks and cleverness.
 - `src/Server` ASP.NET Core: `Auth/*` API-key identity, `Ingest/*`
   `POST /v1/samples`, `Db/*`, `Api/*`, `wwwroot/index.html`.
 - `docker-compose.yml` TimescaleDB on PostgreSQL 17 (user `mm`, password
-  `mm`, database `monitoring`, port 5432).
-- `src/Server/appsettings.Local.json` is git-ignored and holds machine-specific
-  overrides such as `AgentConfig:ProjectRoot`. Never put local paths in a
-  committed file.
+  `mm`, database `monitoring`, port 5432) and the server (`src/Server/Dockerfile`,
+  `https://localhost:7181`, Production profile).
+- `deploy/` certificate export script plus git-ignored `certs/` and `config/`
+  that the server container mounts. `appsettings.Local.json` (machine-specific
+  overrides such as `AgentConfig:ProjectRoot`) and `machines.json` (registry
+  written by FleetSim `prepare`) live in `deploy/config/` for the container or
+  in `src/Server/` for a host-run server; `ConfigDir` selects the folder. Never
+  put local paths in a committed file.
 - `scripts/` run-server, run-agent, outage demo.
 - `tests/Agent.Tests` xunit: pure sampler logic plus Windows smoke tests.
 
@@ -51,9 +57,10 @@ readable code over frameworks and cleverness.
 ```powershell
 dotnet build MachineMonitoring.slnx
 dotnet test MachineMonitoring.slnx
-docker compose up -d
-dotnet run --project src/Server/Server.csproj --launch-profile https   # https://localhost:7181
+.\deploy\export-dev-cert.ps1                                             # once
+docker compose up -d                                                     # db + server, https://localhost:7181
 dotnet run --project src/Agent/Agent.csproj                              # Development profile: short intervals
+docker compose stop server; dotnet run --project src/Server/Server.csproj --launch-profile https   # host-run server instead
 ```
 
 The Development profile of the agent uses short intervals (2 s tick, 10 s

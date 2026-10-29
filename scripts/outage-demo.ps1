@@ -11,8 +11,11 @@
      chart fill in with the original sampled_at timestamps: a delay, not a hole.
   5. Prints what the API reports before and after.
 
-  Prerequisites: docker compose up -d, and the solution built once.
-  The server and agent open in their own windows so their logs stay visible.
+  Prerequisites: docker compose up -d db, and the solution built once.
+  The demo kills and restarts the server as a host process, so a running
+  server container is stopped first to free port 7181 (docker compose start
+  server brings it back afterwards). The server and agent open in their own
+  windows so their logs stay visible.
 #>
 param(
     [int]$OutageSeconds = 60,
@@ -45,6 +48,10 @@ function Show-Fleet($label) {
 }
 
 Write-Host "== 1. Start server and agent =="
+if ((docker ps --filter "name=mm-server" --format "{{.Names}}") -eq "mm-server") {
+    Write-Host "  stopping the server container so the host server can own port 7181"
+    docker compose -f "$root\docker-compose.yml" stop server | Out-Null
+}
 Start-Server
 Start-Process dotnet -ArgumentList "run --project `"$root\src\Agent\Agent.csproj`" --no-build" -WindowStyle Normal
 Write-Host "  letting the agent settle for 30 s"

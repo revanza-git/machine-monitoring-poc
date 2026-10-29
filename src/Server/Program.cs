@@ -8,9 +8,15 @@ using Shared;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Machine-specific overrides (e.g. AgentConfig:ProjectRoot) live in a
-// git-ignored file so local paths never end up in the repository.
-builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+// Machine-specific overrides (e.g. AgentConfig:ProjectRoot) and the machine
+// registry (machines.json, written by tools/FleetSim prepare) live in
+// git-ignored files so local paths and keys never end up in the repository.
+// ConfigDir points the container at its mounted folder; on the host both
+// files sit beside appsettings.json. Arrays merge by index, so machines.json
+// must repeat the appsettings.json entry at index 0 (see MachineRegistryMergeTests).
+var configDir = builder.Configuration["ConfigDir"] ?? builder.Environment.ContentRootPath;
+builder.Configuration.AddJsonFile(Path.Combine(configDir, "appsettings.Local.json"), optional: true, reloadOnChange: true);
+builder.Configuration.AddJsonFile(Path.Combine(configDir, "machines.json"), optional: true, reloadOnChange: false);
 
 // Same JSON shape as the agent: snake_case, from Shared.JsonDefaults.
 builder.Services.ConfigureHttpJsonOptions(o =>

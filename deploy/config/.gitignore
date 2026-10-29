@@ -1,0 +1,6 @@
+# Mounted into the server container as /config: appsettings.Local.json
+# (machine-specific overrides) and machines.json (the registry written by
+# tools/FleetSim prepare). Both hold local paths or keys, so nothing here is
+# committed.
+*
+!.gitignore
