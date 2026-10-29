@@ -73,7 +73,7 @@ docker compose run --rm fleetsim steady --agents 200 --minutes 10
 | Rows | 2,403 sent, 2,403 acknowledged, every one in the database |
 
 Two of the 2,001 batches failed on the chunk deadlock described under
-[Known issues](#known-issues), three seconds into a fresh database; both
+[Issues found by the load runs](#issues-found-by-the-load-runs), three seconds into a fresh database; both
 agents retried and nothing was lost. The deadlock has been fixed since
 (step 22); the figures above are from the run that found it.
 
@@ -258,7 +258,7 @@ heartbeats.
   `NpgsqlBatch`, one round trip) and upserts `machine_latest`. A resend
   stores nothing new and acks the same number. The machine row sits outside
   the transaction because holding it deadlocked against TimescaleDB creating
-  a new weekly chunk (see Known issues). A payload that does not parse is logged and acked rather than
+  a new weekly chunk (see Issues found by the load runs). A payload that does not parse is logged and acked rather than
   rejected, so a poison row cannot wedge an agent.
 - `schema.sql` is the design's tables made literal, embedded in the server
   and applied idempotently on every start: `machines`, `machine_latest`,
@@ -323,7 +323,7 @@ git-ignored `deploy/config/appsettings.Local.json` for the container, or
 `src/Server/appsettings.Local.json` for a host-run server, so local paths
 never reach the repository.
 
-## Known issues
+## Issues found by the load runs
 
 - **Deadlock on the first batches into a new chunk, fixed in step 22.**
   Found by the FleetSim smoke run. TimescaleDB opens a new weekly chunk on
