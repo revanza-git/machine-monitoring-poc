@@ -53,12 +53,15 @@ the one component that never runs in a container, because it reads Windows
 counters. The two mounted folders are git-ignored and explain the two setup
 commands below.
 
-## Measured at 200 machines
+## Measured at 200 and 1,000 machines
 
-The design is sized for 200 machines and says "about 3 batches a second".
-Measured with the simulated fleet on 2026-10-29, server and database in
-their containers, everything on one laptop. Full table and the raw JSON
-summaries are described in `tools/FleetSim/results.md`.
+The design is sized for 200 machines, says "about 3 batches a second"
+there, and is meant to hold at 1,000. Measured with the simulated fleet on
+2026-10-29, server and database in their containers, everything on one
+laptop, a fresh database before each 1,000-machine run. Full table and the
+raw JSON summaries are described in `tools/FleetSim/results.md`.
+
+### 200 machines, the sized fleet
 
 ```powershell
 docker compose run --rm fleetsim steady --agents 200 --minutes 10
@@ -92,9 +95,55 @@ docker compose run --rm fleetsim storm --agents 200 --backlog-hours 6
 The drain time equals the width of the agents' jitter window, so the fleet's
 spread set the pace and the server never had to shed load. The storm was
 started 81 s into the steady run, so it drained on top of live traffic; both
-figures are therefore slightly harsher than the matrix intends, and all
-three containers shared the machine, so the costs are upper bounds. The
-1,000-machine runs have not been done yet.
+figures are therefore slightly harsher than the matrix intends.
+
+### 1,000 machines, the hold-at size
+
+```powershell
+docker compose run --rm fleetsim steady --agents 1000 --minutes 10
+```
+
+| Measure | Result |
+|---------|--------|
+| Batches | 10,000 in ten minutes, 16.67/s against a 16.67/s target |
+| Latency per batch | p50 16 ms, p99 55 ms |
+| Throttle | 4 × 429 in the first 90 s, when 19 batches met 16 slots; none after |
+| Server | about 8 % of one core and under 100 MB, after a first minute near 40 % while 1,000 machines made first contact |
+| Database | about 9 % of one core, under 100 MB |
+| Rows | 12,004 sent and acknowledged; 10,000 cpu_mem and 4,008 drive rows in the database |
+
+```powershell
+docker compose run --rm fleetsim storm --agents 1000 --backlog-hours 6
+```
+
+| Measure | Result |
+|---------|--------|
+| Backlog | 432,000 rows, the design's "about 430k rows fleet-wide" |
+| Drain | 149.5 s; 2 agents saw one 429 each, max 17 in flight |
+| Latency per 432-row batch | p50 351 ms, p99 1.1 s |
+| Database | about 2.4 cores through the drain, peaks of 4.2 |
+| Server | about 13 % of one core, one brief peak near a full core |
+
+```powershell
+docker compose run --rm fleetsim storm --agents 1000 --backlog-hours 6 --no-jitter
+```
+
+| Measure | Result |
+|---------|--------|
+| Start | all 1,000 agents post at once: 1,000 requests in flight at t=0 |
+| Drain | 161 s, all 432,000 rows |
+| Throttle | 8,492 × 429 across 983 agents, median 8 per agent, max 18 |
+| Latency including the Retry-After waits | p50 2.1 s, p99 8.1 s, max 8.9 s |
+| Database | about 2 cores through the drain, peaks of 8.6 |
+| Server | about a third of a core, a 3.3-core peak at t=0, 215 MB |
+
+Same rows, same server: the jittered fleet drained in 150 s with two 429s,
+the un-jittered one in 161 s with 8,492. The jitter costs nothing in
+recovery time and removes almost every rejection; when it is absent, the
+throttle holds, sixteen batches inside the server at a time and everyone
+else told when to come back. No deadlock and no failed request in any of
+the three runs. All three containers shared one laptop, so every cost above
+is an upper bound.
 
 ## Prerequisites
 
@@ -311,7 +360,7 @@ and `results.md` the measured numbers.
 | Nightly folder walk kept current by the NTFS USN journal; allocated size on disk | Nightly full walk only; logical file size | The journal subscription is the one piece that is real engineering effort; the walk shows the data path. Without the journal there is no 15-minute report of changed folders: figures are as of the last walk. |
 | 5-minute and hourly rollups | Hourly continuous aggregate; 5-minute buckets computed on the fly | Shows the pattern once; a week of raw rows (about 10,000 per machine) buckets cheaply. Commit charge is stored raw and shown in the fleet table, but not rolled up or charted. |
 | Status transitions tracked by the server | Status computed from `last_seen` at read time | Gives the same hysteresis with no state to maintain. |
-| Fleet overview filtered by group, in React | One table, every machine, re-rendered every 10 s | Fine at 200 rows; a long page at 1,000, which the 1,000-agent FleetSim run will show. Grouping is admin-area work the PoC leaves out. |
+| Fleet overview filtered by group, in React | One table, every machine, re-rendered every 10 s | Fine at 200 rows. At 1,000 the API answers one 1,000-row page every 10 s and the table is a long scroll: it works, and it shows why the design filters by group. Grouping is admin-area work the PoC leaves out. |
 | Dedup key `(machine_id, install_id, seq)` | Unique index also includes `time` | TimescaleDB requires the partition column in unique indexes. A resend carries the same `sampled_at`, so nothing changes in practice. |
 | Agent state under ProgramData, MSI install | `data/` beside the content root, `--install` via sc.exe | PoC-sized version of the same idea. |
 | Agent validates the server certificate | Development profile sets `TrustAnyServerCertificate` | So the reviewer path works without trusting the dev certificate first. Off in `appsettings.json`. |

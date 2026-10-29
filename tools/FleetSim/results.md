@@ -10,10 +10,10 @@ number is an upper bound on cost. Fill in and keep; the JSON files stay local.
 |---|-----|------|--------------------|--------------------|------|---------|--------------|---------------|----------|-----------|--------------|------------|----------------|
 | 1 | `steady --agents 50 --minutes 10` | | | | | - | | | | | | | |
 | 2 | `steady --agents 200 --minutes 10` | 2026-10-29 | 3.33 (3.33) | 11 / 17 / 48 | 0 | - | 1–3 | 76–110 | ~1 | 80–90 | 2,001 | 804 | 200 |
-| 3 | `steady --agents 1000 --minutes 10` | | | | | - | | | | | | | |
+| 3 | `steady --agents 1000 --minutes 10` | 2026-10-29 | 16.67 (16.67) | 16 / 26 / 55 | 4 | - | ~8 (first minute ~40, peak 90) | 65–100 | ~9, peak 31 | 75–95 | 10,000 | 4,008 | 1,000 |
 | 4 | `storm --agents 200 --backlog-hours 6` | 2026-10-29 | 200 batches over a 149 s drain | 268 / 424 / 578 | 0 | 149 | 5–7, 5 s peaks to 45 | 90–110 | 25–64, 5 s peaks to 97 | 80–90 | 72,000 | 28,800 | 200 |
-| 5 | `storm --agents 1000 --backlog-hours 6` | | | | | | | | | | | | |
-| 6 | `storm --agents 1000 --backlog-hours 6 --no-jitter` | | | | | | | | | | | | |
+| 5 | `storm --agents 1000 --backlog-hours 6` | 2026-10-29 | 1,002 requests over a 150 s drain | 351 / 722 / 1,137 | 2 | 149.5 | ~13, peak 95 | ~90 | ~240 (2.4 cores), peak 421 | ~140 | 360,000 | 144,000 | 1,000 |
+| 6 | `storm --agents 1000 --backlog-hours 6 --no-jitter` | 2026-10-29 | 9,492 requests over a 161 s drain | 2,137 / 7,893 / 8,129 | 8,492 | 160.7 | ~34, peak 331 | ~215 | ~200 (2 cores), peak 856 | ~147 | 360,000 | 144,000 | 1,000 |
 | 7 | `storm --agents 200 --backlog-hours 24` | | | | | | | | | | | | |
 | 8 | `storm --agents 200 --backlog-hours 6 --lost-ack-pct 20` | | | | | | | | | | | | |
 
@@ -35,6 +35,14 @@ Notes:
   counts (74,001 cpu_mem = 72,000 + 2,001; 29,604 drive = 28,800 + 804)
   confirm nothing was lost. CPU figures are `docker stats` percentages of
   one core, sampled every 5 s; the ranges are 30 s averages.
+- Runs 3, 5 and 6 on 2026-10-29 each had a fresh database and nothing else
+  posting. Storm latencies in run 6 include the Retry-After waits, since
+  every 429 is a request. Row counts were exact in all three: 10,000 +
+  4,008 for the steady, 360,000 + 144,000 for each storm. A first attempt at
+  these three was discarded: a stopped run script kept running on Windows
+  and overlapped the next one, and `machines.json` held only 200 entries at
+  the time (a `prepare --agents 200` had been run), so 800 agents were
+  answered 401. Both are recorded under Findings.
 
 ## Smoke runs, 2026-10-29
 
@@ -52,6 +60,18 @@ rest. Not performance figures; they show each path works.
 ## Findings
 
 Things the runs turned up that are not numbers.
+
+- **The harness does not stop on 401.** With `machines.json` holding 200
+  entries, a 1,000-agent run let 800 agents collect `4xx-other` and back
+  off for ten minutes while the portal showed 200 machines. A 401 means the
+  registry is wrong, which no retry will fix; the run should fail at once
+  and say "run prepare". Open, harness only.
+- **Jitter against the throttle at 1,000.** Same 432,000 rows: with jitter
+  150 s and two 429s, without it 161 s and 8,492. The design's spread is
+  worth almost every rejection and costs nothing in recovery time; the
+  throttle alone also gets everyone drained, in 11 s more, at the price of
+  nine rejections per agent and a database working at two to eight cores
+  instead of two to four.
 
 - **Deadlock on the first batches into a new chunk** (smoke run, 5 agents,
   2026-10-29). TimescaleDB opens a new weekly chunk on Thursdays at 00:00
