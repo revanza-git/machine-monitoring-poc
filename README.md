@@ -60,10 +60,19 @@ host: `docker compose stop server`, then `.\scripts\run-server.ps1`
 (Development profile, same port).
 
 To see a fleet rather than one machine, or on a computer without Windows
-where the agent cannot run: `docker compose run --rm fleetsim prepare
---agents 20`, `docker compose restart server`, then `docker compose run --rm
-fleetsim steady --agents 20 --minutes 5`. Twenty simulated machines appear in
-the fleet table beside the real one. See `tools/FleetSim/README.md`.
+where the agent cannot run, use the simulated fleet:
+
+```powershell
+docker compose run --rm fleetsim prepare --agents 20         # register SIM-0001..0020 with the server; no traffic yet
+docker compose restart server                                # the server reads the registry at startup
+docker compose run --rm fleetsim steady --agents 20 --minutes 5   # 20 machines reporting normally for five minutes
+```
+
+Twenty simulated machines appear in the fleet table beside the real one,
+online while the run lasts and off when it ends. They read no counters;
+everything from their queue onwards is the agent's own behaviour. The
+commands, a five-minute smoke test and the load-run matrix are in
+`tools/FleetSim/README.md`.
 
 The projects table stays empty until the agent is given a folder to size:
 create the git-ignored `deploy/config/appsettings.Local.json` (or
