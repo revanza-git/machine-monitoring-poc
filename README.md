@@ -18,6 +18,41 @@ The five things the brief asked to see, and where they live:
 The commit history is one step per commit, in the order listed under
 [Progress](#progress), so the evolution can be followed commit by commit.
 
+## Architecture
+
+The design's three boxes, as the PoC runs them. Every arrow that leaves the
+workstation is outbound: nothing listens there, and the server holds no
+credentials for the fleet.
+
+```mermaid
+flowchart LR
+    subgraph host["Windows workstation (this machine)"]
+        agent["Agent, WS-DEV-01<br/>CPU, memory, drives, user, project walk<br/>SQLite outbox, uploader, backoff"]
+        browser["Browser"]
+    end
+
+    subgraph docker["Docker: docker compose up -d"]
+        server["mm-server: ASP.NET Core<br/>POST /v1/samples: throttle, key, validate, one transaction<br/>GET /api/*, static portal"]
+        db[("mm-db: PostgreSQL 17 + TimescaleDB<br/>machines, machine_latest<br/>hypertables, hourly rollup, compression, retention")]
+        sim["fleetsim, compose profile sim<br/>N virtual agents, no counters<br/>same contract, same Backoff.cs"]
+    end
+
+    agent -- "HTTPS 7181, X-Api-Key<br/>batches of up to 500 rows + heartbeat" --> server
+    server -. "ack_through, config when behind" .-> agent
+    sim -- "same POST, compose network" --> server
+    browser -- "https://localhost:7181" --> server
+    server -- "Npgsql, hand-written SQL" --> db
+    certs[/"deploy/certs: dev certificate"/] -.-> server
+    config[/"deploy/config: local overrides, machines.json"/] -.-> server
+```
+
+Against the design's diagram: an API key stands in for the machine
+certificate, one static page for the React portal, Compose on one host for
+the VM, and the simulated fleet is an addition for load runs. The agent is
+the one component that never runs in a container, because it reads Windows
+counters. The two mounted folders are git-ignored and explain the two setup
+commands below.
+
 ## Prerequisites
 
 - Windows 10 or 11 (the agent reads Windows performance counters and Win32
