@@ -8,6 +8,15 @@ using Shared;
 namespace FleetSim;
 
 /// <summary>
+/// The server answered 401: the registry does not know this agent's key, and
+/// no retry will change that. A real agent would back off forever against a
+/// misconfigured key; the simulator stops the whole run instead, because a
+/// run against the wrong registry measures nothing.
+/// </summary>
+public sealed class NotRegisteredException(string name) : Exception(
+    $"{name} is not registered with the server (401). Run `prepare --agents N` with N at least this agent's number, then restart the server.");
+
+/// <summary>
 /// One simulated machine: the identity, outbox and upload rules of the real
 /// agent, with an in-memory list instead of SQLite and generated values
 /// instead of counters. Mirrors Uploader.cs step for step: peek the oldest
@@ -163,6 +172,12 @@ public sealed class VirtualAgent
                 return Fail(new Outcome.Throttled(retryAfter), $"429, Retry-After {retryAfter.TotalSeconds:0.#}s");
             }
 
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                _stats.Record(Stats.Unauthorized, clock.Elapsed);
+                throw new NotRegisteredException(Name);   // ends the run, see Fleet
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 _stats.Record((int)response.StatusCode >= 500 ? Stats.ServerError : Stats.ClientError, clock.Elapsed);
@@ -191,6 +206,10 @@ public sealed class VirtualAgent
                 ConfigVersion = config.Version;   // from now on the server stops attaching config, as with a real fleet
 
             return rows.Count == _maxRows ? new Outcome.SentFull() : new Outcome.Sent();
+        }
+        catch (NotRegisteredException)
+        {
+            throw;   // not a transient failure: the run must stop
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {

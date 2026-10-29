@@ -484,6 +484,9 @@ fixes sit between them as their own commits.
   `tools/FleetSim/results.md`, including the first finding.
 - [x] 22. Server: the `machines` upsert commits before the batch transaction,
   closing the new-chunk deadlock FleetSim found. Verified on fresh databases.
+- [x] 23. FleetSim: a 401 stops the run at once with the unregistered
+  machine's name, instead of 800 agents backing off against a wrong registry
+  for ten minutes, which is what happened on the first 1,000-agent attempt.
 
 ## Troubleshooting
 

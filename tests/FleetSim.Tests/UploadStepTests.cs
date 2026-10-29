@@ -113,11 +113,26 @@ public class UploadStepTests
     }
 
     [Fact]
+    public async Task Unregistered_key_stops_the_run_instead_of_backing_off()
+    {
+        var (agent, _, stats) = StubServer.Agent(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        Queue(agent, 2);
+
+        var ex = await Assert.ThrowsAsync<NotRegisteredException>(() => agent.SendOnceAsync(false, CancellationToken.None));
+
+        Assert.Contains("SIM-0001", ex.Message);
+        Assert.Contains("prepare", ex.Message);
+        Assert.Equal(2, agent.Depth);
+        Assert.Equal(0, agent.BackoffFailures);   // no backoff: a retry could not help
+        Assert.Equal(1, stats.Summarize("test", 1, "stub", 7, null, [agent], false).Outcomes[Stats.Unauthorized]);
+    }
+
+    [Fact]
     public async Task Other_client_errors_and_exceptions_are_counted_by_kind()
     {
-        var (agent401, _, stats401) = StubServer.Agent(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
-        Assert.IsType<VirtualAgent.Outcome.Failed>(await agent401.SendOnceAsync(false, CancellationToken.None));
-        Assert.Equal(1, stats401.Summarize("test", 1, "stub", 7, null, [agent401], false).Outcomes[Stats.ClientError]);
+        var (agent400, _, stats400) = StubServer.Agent(_ => new HttpResponseMessage(HttpStatusCode.BadRequest));
+        Assert.IsType<VirtualAgent.Outcome.Failed>(await agent400.SendOnceAsync(false, CancellationToken.None));
+        Assert.Equal(1, stats400.Summarize("test", 1, "stub", 7, null, [agent400], false).Outcomes[Stats.ClientError]);
 
         var (agentEx, _, statsEx) = StubServer.Agent(_ => throw new HttpRequestException("connection refused"));
         var outcome = await agentEx.SendOnceAsync(false, CancellationToken.None);

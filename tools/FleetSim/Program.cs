@@ -58,6 +58,11 @@ catch (ArgumentException ex)
     Console.Error.WriteLine(Usage);
     return 2;
 }
+catch (NotRegisteredException ex)
+{
+    Console.Error.WriteLine(ex.Message);   // the run was stopped: nothing it measured would mean anything
+    return 3;
+}
 
 static int Finish(RunSummary summary, string outPath, bool failIfNotDrained)
 {

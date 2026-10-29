@@ -14,6 +14,7 @@ public sealed class Stats
 {
     public const string Ok = "2xx";
     public const string Throttled = "429";
+    public const string Unauthorized = "401";
     public const string ServerError = "5xx";
     public const string ClientError = "4xx-other";
     public static string Exception(Exception ex) => "exception:" + ex.GetType().Name;

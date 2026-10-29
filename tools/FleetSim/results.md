@@ -65,7 +65,9 @@ Things the runs turned up that are not numbers.
   entries, a 1,000-agent run let 800 agents collect `4xx-other` and back
   off for ten minutes while the portal showed 200 machines. A 401 means the
   registry is wrong, which no retry will fix; the run should fail at once
-  and say "run prepare". Open, harness only.
+  and say "run prepare". **Fixed in step 23**: a 401 throws
+  `NotRegisteredException`, the first one cancels the whole run, and the
+  tool exits with code 3 and the agent's name instead of a summary.
 - **Jitter against the throttle at 1,000.** Same 432,000 rows: with jitter
   150 s and two 429s, without it 161 s and 8,492. The design's spread is
   worth almost every rejection and costs nothing in recovery time; the

@@ -38,7 +38,10 @@ which the server container mounts). The file starts with every machine from
 `src/Server/appsettings.json`, because .NET configuration merges arrays by
 index and index 0 of the second file would otherwise evict WS-DEV-01.
 Earlier SIM entries are replaced. The server reads the registry at startup:
-`docker compose restart server`.
+`docker compose restart server`. A run whose agents the server does not
+know stops at once with exit code 3 and the agent's name, since a 401 is a
+registry problem no retry can fix; check `--agents` against what `prepare`
+last wrote.
 
 **steady** is the design's normal minute at fleet scale. Each agent's first
 post is offset by a random fraction of the interval; then every cycle it
@@ -157,9 +160,12 @@ pass are in [results.md](results.md).
    Get-Content tools/FleetSim/counts.sql | docker exec -i mm-db psql -U mm -d monitoring -f -
    ```
 
-6. **Two negative checks.** Ctrl+C during any run prints the summary so far,
-   sends the goodbyes and exits cleanly. An unknown flag such as
-   `--intervall 5` prints the usage with the flag named.
+6. **Three negative checks.** Ctrl+C during any run prints the summary so
+   far, sends the goodbyes and exits cleanly. An unknown flag such as
+   `--intervall 5` prints the usage with the flag named. A run with more
+   agents than `prepare` registered, such as `--agents 1001` after
+   `prepare --agents 1000`, stops within a second naming the unregistered
+   machine, exit code 3, no summary.
 
 Reading a result file: `outcomes` should be `2xx` only unless the run was
 meant to draw 429s; `rows_sent` equals `rows_acked` unless acks were lost on

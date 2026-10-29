@@ -29,8 +29,10 @@ public static class Fleet
         // interval so the fleet never ticks in lockstep, as real agents
         // installed at different times would not.
         var offsets = new Random(o.Seed);
-        var tasks = agents.Select(a => RunSteadyAgentAsync(a, o.Interval, offsets.NextDouble(), run.Token)).ToList();
+        var abort = new Abort(run);
+        var tasks = agents.Select(a => abort.Guard(RunSteadyAgentAsync(a, o.Interval, offsets.NextDouble(), run.Token))).ToList();
         await RunWithProgressAsync(tasks, stats, agents, target);
+        abort.Rethrow();
 
         var summary = stats.Summarize("steady", o.Agents, o.Server, o.Seed, target, agents, storm: false);
         await SayGoodbyeAsync(agents);
@@ -53,8 +55,10 @@ public static class Fleet
 
         using var run = CancellationTokenSource.CreateLinkedTokenSource(ct);
         run.CancelAfter(o.Timeout);
-        var tasks = agents.Select(a => RunStormAgentAsync(a, o, run.Token)).ToList();
+        var abort = new Abort(run);
+        var tasks = agents.Select(a => abort.Guard(RunStormAgentAsync(a, o, run.Token))).ToList();
         await RunWithProgressAsync(tasks, stats, agents, targetPerS: null);
+        abort.Rethrow();
 
         var summary = stats.Summarize("storm", o.Agents, o.Server, o.Seed, null, agents, storm: true);
         if (run.IsCancellationRequested && !ct.IsCancellationRequested)
@@ -100,6 +104,35 @@ public static class Fleet
         }
     }
 
+    /// <summary>
+    /// A fault that must end the whole run rather than one agent: an
+    /// unregistered key. The first one wins and cancels the run, so the
+    /// other agents stop within a second instead of backing off for
+    /// minutes; <see cref="Rethrow"/> then surfaces it in place of a summary.
+    /// </summary>
+    private sealed class Abort(CancellationTokenSource run)
+    {
+        private NotRegisteredException? _fault;
+
+        public async Task Guard(Task agentLoop)
+        {
+            try
+            {
+                await agentLoop;
+            }
+            catch (NotRegisteredException ex)
+            {
+                Interlocked.CompareExchange(ref _fault, ex, null);
+                run.Cancel();
+            }
+        }
+
+        public void Rethrow()
+        {
+            if (_fault is { } fault) throw fault;
+        }
+    }
+
     private static async Task RunWithProgressAsync(List<Task> tasks, Stats stats, IReadOnlyList<VirtualAgent> agents, double? targetPerS)
     {
         var all = Task.WhenAll(tasks);
@@ -128,9 +161,9 @@ public static class Fleet
                 await Task.Delay(TimeSpan.FromMilliseconds(10 * i), cts.Token);
                 return await a.SendOnceAsync(stopping: true, cts.Token) is VirtualAgent.Outcome.Sent;
             }
-            catch (OperationCanceledException)
+            catch (Exception ex) when (ex is OperationCanceledException or NotRegisteredException)
             {
-                return false;
+                return false;   // best effort, like the real goodbye
             }
         }));
         Console.WriteLine($"stopping heartbeats: {results.Count(ok => ok)} of {agents.Count} acknowledged (the portal shows those as off)");
